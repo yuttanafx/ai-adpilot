@@ -20,7 +20,7 @@
 
 ```bash
 npm install
-cp .env.example .env.local   # ใส่ ANTHROPIC_API_KEY (และ APP_PASSWORD ถ้าต้องการทดสอบล็อกอิน)
+cp .env.example .env.local   # ใส่ GEMINI_API_KEY หรือ ANTHROPIC_API_KEY (และ APP_PASSWORD ถ้าต้องการทดสอบล็อกอิน)
 npm run dev
 ```
 
@@ -31,7 +31,7 @@ npm run dev
 1. อัปโค้ดขึ้น GitHub
 2. ที่ vercel.com เลือก **Add New → Project** แล้ว import repo นี้
 3. ที่ **Environment Variables** เพิ่ม
-   - `ANTHROPIC_API_KEY` (จำเป็น)
+   - `GEMINI_API_KEY` หรือ `ANTHROPIC_API_KEY` (ต้องมีอย่างน้อย 1 ตัว)
    - `APP_PASSWORD` (จำเป็น ถ้าไม่ตั้ง ระบบจะปิดการเข้าถึงบน production)
    - `AUTH_SECRET` (แนะนำ สตริงสุ่มยาวๆ)
 4. กด Deploy

@@ -19,7 +19,63 @@ const LIMITS: Record<Platform, string> = {
   tiktok: "Ad text up to 100 characters, plus a 15 second video script (put the script in creativeBrief).",
 };
 
-const MODEL = process.env.ANTHROPIC_MODEL || "claude-sonnet-5-5";
+const CLAUDE_MODEL = process.env.ANTHROPIC_MODEL || "claude-sonnet-5-5";
+const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-3.8-flash";
+
+// เลือกผู้ให้บริการ AI: AI_PROVIDER=gemini|anthropic ถ้าไม่ระบุ จะดูว่าตั้ง key ตัวไหนไว้ (Gemini มาก่อน)
+function pickProvider(): "gemini" | "anthropic" | null {
+  const want = process.env.AI_PROVIDER;
+  if (want === "gemini") return process.env.GEMINI_API_KEY ? "gemini" : null;
+  if (want === "anthropic") return process.env.ANTHROPIC_API_KEY ? "anthropic" : null;
+  if (process.env.GEMINI_API_KEY) return "gemini";
+  if (process.env.ANTHROPIC_API_KEY) return "anthropic";
+  return null;
+}
+
+type AiResult = { text: string; truncated: boolean };
+
+async function callGemini(prompt: string): Promise<AiResult> {
+  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`, {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-goog-api-key": process.env.GEMINI_API_KEY as string },
+    body: JSON.stringify({
+      contents: [{ role: "user", parts: [{ text: prompt }] }],
+      generationConfig: { maxOutputTokens: 8192, responseMimeType: "application/json" },
+    }),
+  });
+  if (!res.ok) {
+    console.error("Gemini API error", res.status, (await res.text()).slice(0, 500));
+    throw new Error(`เรียก Gemini ไม่สำเร็จ (รหัส ${res.status}) ตรวจสอบ GEMINI_API_KEY และชื่อโมเดล`);
+  }
+  const data = (await res.json()) as {
+    candidates?: { content?: { parts?: { text?: string }[] }; finishReason?: string }[];
+  };
+  const cand = data.candidates?.[0];
+  const text = (cand?.content?.parts ?? []).map((p) => p.text ?? "").join("").trim();
+  if (!text && cand?.finishReason && cand.finishReason !== "STOP") {
+    throw new Error("Gemini ไม่ตอบกลับ (อาจถูกกรองเนื้อหา) ลองปรับข้อความสินค้า/โปรโมชัน");
+  }
+  return { text, truncated: cand?.finishReason === "MAX_TOKENS" };
+}
+
+async function callClaude(prompt: string): Promise<AiResult> {
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-api-key": process.env.ANTHROPIC_API_KEY as string,
+      "anthropic-version": "2023-06-01",
+    },
+    body: JSON.stringify({ model: CLAUDE_MODEL, max_tokens: 6000, messages: [{ role: "user", content: prompt }] }),
+  });
+  if (!res.ok) {
+    console.error("Anthropic API error", res.status, (await res.text()).slice(0, 500));
+    throw new Error(`เรียก Claude ไม่สำเร็จ (รหัส ${res.status}) ตรวจสอบ ANTHROPIC_API_KEY`);
+  }
+  const data = (await res.json()) as { content: { type: string; text?: string }[]; stop_reason?: string };
+  const text = data.content.map((b) => (b.type === "text" ? b.text ?? "" : "")).join("").trim();
+  return { text, truncated: data.stop_reason === "max_tokens" };
+}
 
 const str = (v: unknown, max: number) => (typeof v === "string" ? v.trim().slice(0, max) : "");
 
@@ -31,9 +87,9 @@ function extractJsonArray(text: string): unknown {
 }
 
 export async function POST(req: Request) {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
-    return NextResponse.json({ error: "ยังไม่ได้ตั้งค่า ANTHROPIC_API_KEY ในระบบ" }, { status: 500 });
+  const provider = pickProvider();
+  if (!provider) {
+    return NextResponse.json({ error: "ยังไม่ได้ตั้งค่า GEMINI_API_KEY หรือ ANTHROPIC_API_KEY ในระบบ" }, { status: 500 });
   }
 
   const rl = rateLimit("gen:" + clientIp(req), 10, 60_000);
@@ -75,29 +131,10 @@ Return ONLY a JSON array, no markdown. Each item has these keys:
 "angle", "headline", "primaryText", "description", "cta", "audienceNotes", "creativeBrief" (what the image or video should show), "tags" (array of short strings).`;
 
   try {
-    const res = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-api-key": apiKey,
-        "anthropic-version": "2023-06-01",
-      },
-      body: JSON.stringify({
-        model: MODEL,
-        max_tokens: 6000,
-        messages: [{ role: "user", content: prompt }],
-      }),
-    });
-    if (!res.ok) {
-      const detail = await res.text();
-      console.error("Anthropic API error", res.status, detail.slice(0, 500));
-      return NextResponse.json({ error: `เรียก AI ไม่สำเร็จ (รหัส ${res.status})` }, { status: 502 });
-    }
-    const data = (await res.json()) as { content: { type: string; text?: string }[]; stop_reason?: string };
-    if (data.stop_reason === "max_tokens") {
+    const { text, truncated } = provider === "gemini" ? await callGemini(prompt) : await callClaude(prompt);
+    if (truncated) {
       return NextResponse.json({ error: "AI ตอบยาวเกินกำหนด ลองลดจำนวนชุดที่ต้องการ" }, { status: 502 });
     }
-    const text = data.content.map((b) => (b.type === "text" ? b.text ?? "" : "")).join("").trim();
     const parsed = extractJsonArray(text);
     if (!Array.isArray(parsed)) throw new Error("ผลลัพธ์จาก AI ไม่ใช่รายการ");
 
