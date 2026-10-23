@@ -7,6 +7,9 @@ export const json = (data: unknown, status = 200) => NextResponse.json(data, { s
 function fail(e: unknown) {
   if (e instanceof AppError) return NextResponse.json({ error: e.message, code: e.code }, { status: e.status });
   console.error(e);
+  if (e instanceof Error && e.message.includes("AUTH_SECRET")) {
+    return NextResponse.json({ error: "ยังไม่ได้ตั้งค่า AUTH_SECRET บนเซิร์ฟเวอร์ (สร้างด้วย openssl rand -hex 32 แล้ว Redeploy)", code: "CONFIG" }, { status: 503 });
+  }
   return NextResponse.json({ error: "เซิร์ฟเวอร์ผิดพลาด กรุณาลองใหม่อีกครั้ง" }, { status: 500 });
 }
 

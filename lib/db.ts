@@ -19,21 +19,60 @@ export function getDb(): Promise<Db> {
   if (!g.__fxDb) {
     g.__fxDb = init().catch((e) => {
       g.__fxDb = undefined;
-      throw e;
+      if (e instanceof AppError) throw e;
+      console.error("[db] เริ่มต้นฐานข้อมูลไม่สำเร็จ", e);
+      // แสดงเฉพาะรหัส error (ไม่รวมข้อความที่อาจมีชื่อโฮสต์/ผู้ใช้) เพื่อให้ตรวจสอบสาเหตุได้
+      const code = typeof e?.code === "string" ? e.code : "UNKNOWN";
+      throw new AppError(`เชื่อมต่อหรือเตรียมฐานข้อมูลไม่สำเร็จ (รหัส ${code}) ตรวจสอบ DATABASE_URL / POSTGRES_URL และดู log บน Vercel`, 503, "DB");
     });
   }
   return g.__fxDb;
 }
 
+const CERT_ERRORS = ["SELF_SIGNED_CERT_IN_CHAIN", "DEPTH_ZERO_SELF_SIGNED_CERT", "UNABLE_TO_VERIFY_LEAF_SIGNATURE", "UNABLE_TO_GET_ISSUER_CERT_LOCALLY"];
+
+// พารามิเตอร์ sslmode / supa ที่ Vercel ใส่มาทำให้ pg บังคับตรวจใบรับรองแบบเข้มและพังกับ pooler บางเจ้า จึงตัดออกแล้วกำหนด ssl เอง
+function cleanUrl(u: string): string {
+  try {
+    const x = new URL(u);
+    x.searchParams.delete("sslmode");
+    x.searchParams.delete("supa");
+    return x.toString();
+  } catch {
+    return u;
+  }
+}
+
+async function connectPg(url: string): Promise<Db> {
+  const { Pool } = await import("pg");
+  const conn = cleanUrl(url);
+  const local = /@(localhost|127\.0\.0\.1|\[::1\])[:/]/.test(conn);
+  const mk = (ssl: boolean | { rejectUnauthorized: boolean }) =>
+    new Pool({ connectionString: conn, max: 5, ssl: local ? undefined : ssl, connectionTimeoutMillis: 10_000 });
+  let pool = mk(true); // ตรวจใบรับรองเต็มรูปแบบก่อน
+  try {
+    await pool.query("select 1");
+  } catch (e) {
+    const code = (e as { code?: string })?.code ?? "";
+    if (!CERT_ERRORS.includes(code)) throw e;
+    // ผู้ให้บริการบางรายใช้ CA ที่ Node ไม่รู้จัก: ยังเข้ารหัสการเชื่อมต่ออยู่ แต่ไม่ตรวจห่วงโซ่ใบรับรอง
+    console.warn("[db] ตรวจใบรับรอง SSL ไม่ผ่าน (" + code + ") ลองใหม่แบบ rejectUnauthorized=false");
+    await pool.end().catch(() => {});
+    pool = mk({ rejectUnauthorized: false });
+    await pool.query("select 1");
+  }
+  return { query: async (s, p) => (await pool.query(s, p as unknown[])).rows };
+}
+
 async function init(): Promise<Db> {
   let db: Db;
-  if (process.env.DATABASE_URL) {
-    const { Pool } = await import("pg");
-    const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 5 });
-    db = { query: async (s, p) => (await pool.query(s, p as unknown[])).rows };
+  // รองรับทั้ง DATABASE_URL และตัวแปรที่ Vercel / Neon สร้างให้อัตโนมัติ (POSTGRES_URL ฯลฯ)
+  const dbUrl = process.env.DATABASE_URL || process.env.POSTGRES_URL || process.env.POSTGRES_PRISMA_URL || process.env.POSTGRES_URL_NON_POOLING;
+  if (dbUrl) {
+    db = await connectPg(dbUrl);
   } else {
     if (process.env.NODE_ENV === "production") {
-      throw new AppError("ยังไม่ได้ตั้งค่า DATABASE_URL (ฐานข้อมูล Postgres) บนเซิร์ฟเวอร์", 503);
+      throw new AppError("ยังไม่ได้ตั้งค่า DATABASE_URL หรือ POSTGRES_URL (ฐานข้อมูล Postgres) บนเซิร์ฟเวอร์", 503);
     }
     // โหมดพัฒนาในเครื่อง: ใช้ Postgres แบบฝัง เก็บไฟล์ไว้ที่ .data/
     const { PGlite } = await import("@electric-sql/pglite");
