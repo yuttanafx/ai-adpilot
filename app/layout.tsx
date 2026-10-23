@@ -1,17 +1,15 @@
 import type { Metadata } from "next";
-import { Inter } from "next/font/google";
 import "./globals.css";
-
-const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
+import { BRAND_NAME } from "@/lib/brand";
 
 export const metadata: Metadata = {
-  title: "AI Ad Pilot",
-  description: "AI-powered ad management dashboard",
+  title: BRAND_NAME,
+  description: "แดชบอร์ดจัดการโฆษณาด้วย AI",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={inter.variable}>
+    <html lang="th">
       <body>{children}</body>
     </html>
   );

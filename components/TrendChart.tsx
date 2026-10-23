@@ -19,7 +19,7 @@ export default function TrendChart({ spend, sales }: { spend: number[]; sales: n
       className="chart"
       viewBox="0 0 800 250"
       role="img"
-      aria-label={`Daily spend and sales in baht, ${DAYS[0]} to ${DAYS[DAYS.length - 1]}. Sales peak at ${baht(Math.max(...sales))}.`}
+      aria-label={`ค่าโฆษณาและยอดขายรายวัน (บาท) ${DAYS[0]} ถึง ${DAYS[DAYS.length - 1]} ยอดขายสูงสุด ${baht(Math.max(...sales))}`}
     >
       {[0, 1, 2, 3, 4].map((i) => {
         const v = (top / 4) * i;
@@ -37,12 +37,12 @@ export default function TrendChart({ spend, sales }: { spend: number[]; sales: n
       <polyline points={line(spend)} fill="none" stroke="#4c8dff" strokeWidth={2.5} strokeLinejoin="round" strokeLinecap="round" />
       {sales.map((v, i) => (
         <circle key={"s" + i} cx={x(i)} cy={y(v)} r={4} fill="#3ddc84" stroke="#141821" strokeWidth={2}>
-          <title>{`${DAYS[i]} sales ${baht(v)}`}</title>
+          <title>{`${DAYS[i]} ยอดขาย ${baht(v)}`}</title>
         </circle>
       ))}
       {spend.map((v, i) => (
         <circle key={"p" + i} cx={x(i)} cy={y(v)} r={4} fill="#4c8dff" stroke="#141821" strokeWidth={2}>
-          <title>{`${DAYS[i]} spend ${baht(v)}`}</title>
+          <title>{`${DAYS[i]} ค่าโฆษณา ${baht(v)}`}</title>
         </circle>
       ))}
     </svg>

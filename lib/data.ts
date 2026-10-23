@@ -1,19 +1,21 @@
 // ข้อมูลตัวอย่าง (mock) — เปลี่ยนเป็นดึงจาก Meta / Google / TikTok API หรือฐานข้อมูลของคุณภายหลัง
 
 export type Platform = "all" | "meta" | "google" | "tiktok";
+export type AdPlatform = Exclude<Platform, "all">;
 
 export const PLATFORMS: { id: Platform; label: string }[] = [
-  { id: "all", label: "All" },
+  { id: "all", label: "ทั้งหมด" },
   { id: "meta", label: "Meta" },
   { id: "google", label: "Google" },
   { id: "tiktok", label: "TikTok" },
 ];
 
-export const DAYS = ["Oct 16", "Oct 17", "Oct 18", "Oct 19", "Oct 20", "Oct 21", "Oct 22"];
+export const DAYS = ["16 ต.ค.", "17 ต.ค.", "18 ต.ค.", "19 ต.ค.", "20 ต.ค.", "21 ต.ค.", "22 ต.ค."];
 export const BASE_SPEND = [5200, 6100, 6800, 5900, 7200, 7400, 6720];
 export const BASE_SALES = [21000, 25500, 28200, 24800, 31000, 30500, 28500];
 
-export type Kpi = { label: string; value: string; delta: number; good: boolean };
+// good: true = ขึ้นแล้วดี (สีเขียว), false = ขึ้นแล้วไม่ดี, null = เป็นกลาง (ไม่ตัดสินดี/ร้าย)
+export type Kpi = { label: string; value: string; delta: number; good: boolean | null };
 
 type PlatformData = { shareSpend: number; shareSales: number; kpis: Kpi[] };
 
@@ -28,26 +30,33 @@ function kpis(
   conv: number, convD: number,
 ): Kpi[] {
   return [
-    { label: "1. SPEND", value: baht(spend), delta: spendD, good: false },
-    { label: "2. SALES", value: baht(sales), delta: salesD, good: true },
+    { label: "1. ค่าโฆษณา", value: baht(spend), delta: spendD, good: null },
+    { label: "2. ยอดขาย", value: baht(sales), delta: salesD, good: true },
     { label: "3. ROAS", value: roas.toFixed(2), delta: roasD, good: true },
     { label: "4. CPA", value: baht(cpa), delta: cpaD, good: true },
     { label: "5. CTR", value: ctr.toFixed(1) + "%", delta: ctrD, good: true },
-    { label: "6. CONV. RATE", value: conv.toFixed(1) + "%", delta: convD, good: true },
+    { label: "6. อัตราปิดการขาย", value: conv.toFixed(1) + "%", delta: convD, good: true },
   ];
 }
 
 export const PLATFORM_DATA: Record<Platform, PlatformData> = {
-  all: { shareSpend: 1, shareSales: 1, kpis: kpis(45320, -5, 189500, 12, 4.18, 8, 168, -3, 3.9, 1.1, 4.2, 0.5) },
+  all: { shareSpend: 1, shareSales: 1, kpis: kpis(45320, -5, 189500, 12, 4.18, 8, 164, -3, 3.9, 1.1, 4.2, 0.5) },
   meta: { shareSpend: 0.5, shareSales: 0.525, kpis: kpis(22660, -4, 99500, 14, 4.39, 9, 152, -4, 4.3, 1.4, 4.6, 0.7) },
-  google: { shareSpend: 0.3, shareSales: 0.3, kpis: kpis(13596, -6, 56850, 10, 4.18, 6, 171, -2, 3.4, 0.6, 4.1, 0.3) },
+  google: { shareSpend: 0.3, shareSales: 0.3, kpis: kpis(13596, -6, 56850, 10, 4.18, 6, 170, -2, 3.4, 0.6, 4.1, 0.3) },
   tiktok: { shareSpend: 0.2, shareSales: 0.175, kpis: kpis(9064, -7, 33150, 9, 3.66, 5, 189, -1, 3.5, 0.9, 3.3, 0.4) },
 };
 
 export type CampaignStatus = "Active" | "Learning" | "Limited" | "Paused";
+export const STATUS_TH: Record<CampaignStatus, string> = {
+  Active: "กำลังทำงาน",
+  Learning: "กำลังเรียนรู้",
+  Limited: "ถูกจำกัด",
+  Paused: "หยุดชั่วคราว",
+};
+
 export type Campaign = {
   name: string;
-  platform: Exclude<Platform, "all">;
+  platform: AdPlatform;
   status: CampaignStatus;
   budget: number;
   results: number;
@@ -56,36 +65,53 @@ export type Campaign = {
 };
 
 export const CAMPAIGNS: Campaign[] = [
-  { name: "Summer Promo – Campaign A", platform: "meta", status: "Active", budget: 5200, results: 312, roas: 5.2, quality: 88 },
-  { name: "Retargeting – Campaign B", platform: "meta", status: "Active", budget: 4000, results: 241, roas: 4.82, quality: 82 },
-  { name: "Brand Search – Ad Set C", platform: "google", status: "Limited", budget: 6000, results: 96, roas: 1.9, quality: 38 },
-  { name: "Shopping – Best Sellers", platform: "google", status: "Active", budget: 3500, results: 188, roas: 4.3, quality: 76 },
-  { name: "Spark Ads – Launch", platform: "tiktok", status: "Learning", budget: 2500, results: 74, roas: 3.1, quality: 58 },
-  { name: "UGC Test – Ad Set D", platform: "tiktok", status: "Paused", budget: 1500, results: 21, roas: 0.9, quality: 22 },
+  { name: "โปรโมชันซัมเมอร์ – แคมเปญ A", platform: "meta", status: "Active", budget: 5200, results: 90, roas: 5.2, quality: 88 },
+  { name: "รีมาร์เก็ตติ้ง – แคมเปญ B", platform: "meta", status: "Active", budget: 4000, results: 59, roas: 4.82, quality: 82 },
+  { name: "ค้นหาแบรนด์ – ชุดโฆษณา C", platform: "google", status: "Limited", budget: 6000, results: 24, roas: 1.9, quality: 38 },
+  { name: "Shopping – สินค้าขายดี", platform: "google", status: "Active", budget: 3500, results: 56, roas: 4.3, quality: 76 },
+  { name: "Spark Ads – เปิดตัวสินค้า", platform: "tiktok", status: "Learning", budget: 2500, results: 38, roas: 3.1, quality: 58 },
+  { name: "ทดสอบ UGC – ชุดโฆษณา D", platform: "tiktok", status: "Paused", budget: 1500, results: 10, roas: 0.9, quality: 22 },
 ];
 
 export const CREATIVES = [
-  { name: "Hero – Smiling Customer", note: "Raised Campaign B budget by 10%", winners: 3, losers: 1, initial: "H", from: "#7fe0a8", to: "#4c8dff" },
-  { name: "Product Bundle Flat-lay", note: "ROAS dropped below 2.0", winners: 1, losers: 3, initial: "P", from: "#ffd479", to: "#ff8a5c" },
-  { name: "Founder Story Video", note: "Scaled to Google Shopping", winners: 3, losers: 2, initial: "F", from: "#9ab8ff", to: "#c79bff" },
-  { name: "Seasonal Offer Banner", note: "Rotated out after 6 days", winners: 2, losers: 2, initial: "S", from: "#ff9aa0", to: "#ffd479" },
+  { name: "ภาพหลัก – ลูกค้ายิ้ม", note: "เพิ่มงบแคมเปญ B ขึ้น 20%", winners: 3, losers: 1, initial: "ภ", from: "#7fe0a8", to: "#4c8dff" },
+  { name: "ชุดเซ็ตสินค้า (Flat-lay)", note: "ROAS ต่ำกว่า 2.0", winners: 1, losers: 3, initial: "ช", from: "#ffd479", to: "#ff8a5c" },
+  { name: "วิดีโอเรื่องราวผู้ก่อตั้ง", note: "ขยายไปยัง Google Shopping", winners: 3, losers: 2, initial: "ว", from: "#9ab8ff", to: "#c79bff" },
+  { name: "แบนเนอร์โปรตามฤดูกาล", note: "หยุดใช้หลังรัน 6 วัน", winners: 2, losers: 2, initial: "ฤ", from: "#ff9aa0", to: "#ffd479" },
 ];
 
-export const DECISION_LOG = [
-  { date: "Oct 22, 10:18", action: "Increased Campaign B budget by 20%", reason: "ROAS 4.82" },
-  { date: "Oct 21, 16:40", action: "Rotated out Creative #F", reason: "CTR below 0.8% for 3 days" },
-  { date: "Oct 20, 10:05", action: "Paused Ad Set D", reason: "CPA high, over ฿250" },
-  { date: "Oct 19, 09:12", action: "Shifted ฿1,000/day from Ad Set C to Campaign A", reason: "ROAS gap of 3.3 points" },
+export type LogEntry = { id: string; ts: string; action: string; reason: string };
+
+export const SEED_LOG: LogEntry[] = [
+  { id: "s4", ts: "2026-10-22T10:18:00+07:00", action: "เพิ่มงบแคมเปญ B ขึ้น 20%", reason: "ROAS 4.82" },
+  { id: "s3", ts: "2026-10-21T16:40:00+07:00", action: "หยุดใช้ครีเอทีฟ #F", reason: "CTR ต่ำกว่า 0.8% ติดต่อกัน 3 วัน" },
+  { id: "s2", ts: "2026-10-20T10:05:00+07:00", action: "หยุดชุดโฆษณา D ชั่วคราว", reason: "CPA สูง เกิน ฿250" },
+  { id: "s1", ts: "2026-10-19T09:12:00+07:00", action: "ย้ายงบ ฿1,000/วัน จากชุดโฆษณา C ไปแคมเปญ A", reason: "ROAS ต่างกัน 3.3 จุด" },
 ];
 
-export const APPROVAL_QUEUE = [
-  { id: "a1", title: "Summer Promo – Variant 1", initial: "A", from: "#9ab8ff", to: "#4c8dff" },
-  { id: "a2", title: "Retargeting – Variant 2", initial: "B", from: "#ffd479", to: "#ff8a5c" },
-  { id: "a3", title: "Brand Search – Variant 3", initial: "C", from: "#7fe0a8", to: "#3ddc84" },
+export type QueueStatus = "pending" | "approved" | "rejected";
+export type QueueItem = {
+  id: string;
+  title: string;
+  platform: AdPlatform | null;
+  headline: string;
+  primaryText: string;
+  description?: string;
+  cta?: string;
+  brief?: string;
+  status: QueueStatus;
+  from: string;
+  to: string;
+};
+
+export const SEED_QUEUE: QueueItem[] = [
+  { id: "a1", title: "โปรโมชันซัมเมอร์ – แบบที่ 1", platform: "meta", headline: "ซัมเมอร์นี้ ลดสูงสุด 20%", primaryText: "ช้อปสินค้าขายดีในราคาพิเศษ ถึงสิ้นเดือนนี้เท่านั้น", status: "pending", from: "#9ab8ff", to: "#4c8dff" },
+  { id: "a2", title: "รีมาร์เก็ตติ้ง – แบบที่ 2", platform: "meta", headline: "ของที่คุณดูไว้ ยังรออยู่นะ", primaryText: "กลับมาสั่งซื้อวันนี้ รับส่วนลดสำหรับลูกค้าเก่า", status: "pending", from: "#ffd479", to: "#ff8a5c" },
+  { id: "a3", title: "ค้นหาแบรนด์ – แบบที่ 3", platform: "google", headline: "ร้านทางการ ส่งฟรีทั่วไทย", primaryText: "สั่งตรงจากแบรนด์ ของแท้ มั่นใจได้", status: "pending", from: "#7fe0a8", to: "#3ddc84" },
 ];
 
 export const NOTIFICATIONS = [
-  { text: "Budget low – Campaign A", time: "12 min ago" },
-  { text: "High CPA – Ad Set C", time: "1 h ago" },
-  { text: "Ad rejected – Creative #F", time: "3 h ago" },
+  { text: "งบเหลือน้อย – แคมเปญ A", time: "12 นาทีที่แล้ว" },
+  { text: "CPA สูง – ชุดโฆษณา C", time: "1 ชม. ที่แล้ว" },
+  { text: "โฆษณาถูกปฏิเสธ – ครีเอทีฟ #F", time: "3 ชม. ที่แล้ว" },
 ];
