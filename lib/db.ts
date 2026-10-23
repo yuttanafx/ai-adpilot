@@ -21,9 +21,20 @@ export function getDb(): Promise<Db> {
       g.__fxDb = undefined;
       if (e instanceof AppError) throw e;
       console.error("[db] เริ่มต้นฐานข้อมูลไม่สำเร็จ", e);
-      // แสดงเฉพาะรหัส error (ไม่รวมข้อความที่อาจมีชื่อโฮสต์/ผู้ใช้) เพื่อให้ตรวจสอบสาเหตุได้
-      const code = typeof e?.code === "string" ? e.code : "UNKNOWN";
-      throw new AppError(`เชื่อมต่อหรือเตรียมฐานข้อมูลไม่สำเร็จ (รหัส ${code}) ตรวจสอบ DATABASE_URL / POSTGRES_URL และดู log บน Vercel`, 503, "DB");
+      // แสดงรหัสและข้อความ error ที่ตัดข้อมูลอ่อนไหวออก (ชื่อผู้ใช้ ชื่อโฮสต์ ข้อความในเครื่องหมายคำพูด) เพื่อให้ตรวจสอบสาเหตุได้
+      const code = typeof e?.code === "string" ? e.code : "";
+      const raw = e instanceof Error ? e.message : String(e);
+      const safe = raw
+        .replace(/"[^"]*"/g, '"…"')
+        .replace(/[a-z0-9_-]+(\.[a-z0-9_-]+)+/gi, "…")
+        .replace(/\s+/g, " ")
+        .slice(0, 140);
+      const name = e instanceof Error ? e.name : "Error";
+      throw new AppError(
+        `เชื่อมต่อหรือเตรียมฐานข้อมูลไม่สำเร็จ (${code || name}: ${safe}) ตรวจสอบ DATABASE_URL / POSTGRES_URL`,
+        503,
+        "DB",
+      );
     });
   }
   return g.__fxDb;
@@ -48,8 +59,9 @@ async function connectPg(url: string): Promise<Db> {
   const conn = cleanUrl(url);
   const local = /@(localhost|127\.0\.0\.1|\[::1\])[:/]/.test(conn);
   const mk = (ssl: boolean | { rejectUnauthorized: boolean }) =>
-    new Pool({ connectionString: conn, max: 5, ssl: local ? undefined : ssl, connectionTimeoutMillis: 10_000 });
+    new Pool({ connectionString: conn, max: 5, ssl: local ? undefined : ssl, connectionTimeoutMillis: 15_000 });
   let pool = mk(true); // ตรวจใบรับรองเต็มรูปแบบก่อน
+  pool.on("error", (err) => console.error("[db] pool error", err.message));
   try {
     await pool.query("select 1");
   } catch (e) {
