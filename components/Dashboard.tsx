@@ -1,9 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import TrendChart from "./TrendChart";
 import CreativeGenerator, { type Creative } from "./CreativeGenerator";
 import SettingsPanel from "./SettingsPanel";
+import AdConnections from "./AdConnections";
+import type { Overview } from "@/lib/ads/overview";
+import { money } from "@/lib/format";
 import { useStored } from "@/lib/useStored";
 import { BRAND_NAME } from "@/lib/brand";
 import {
@@ -21,7 +24,6 @@ import {
   type QueueItem,
 } from "@/lib/data";
 
-const baht = (n: number) => "฿" + Math.round(n).toLocaleString("en-US");
 const grad = (a: string, b: string) => ({ background: `linear-gradient(135deg, ${a}, ${b})` });
 const PALETTE: [string, string][] = [["#9ab8ff", "#4c8dff"], ["#ffd479", "#ff8a5c"], ["#7fe0a8", "#3ddc84"], ["#ff9aa0", "#ffd479"], ["#c79bff", "#4c8dff"]];
 const PLATFORM_LABEL: Record<AdPlatform, string> = { meta: "Meta", google: "Google", tiktok: "TikTok" };
@@ -45,10 +47,43 @@ export default function Dashboard({ user }: { user: { displayName: string; role:
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState({ headline: "", primaryText: "" });
 
-  const d = PLATFORM_DATA[platform];
-  const spend = BASE_SPEND.map((v) => v * d.shareSpend);
-  const sales = BASE_SALES.map((v) => v * d.shareSales);
-  const campaigns = CAMPAIGNS.filter((c) => platform === "all" || c.platform === platform);
+  // ข้อมูลจริงจาก Meta / TikTok (ถ้าผู้ใช้เชื่อมต่อแล้ว) — ถ้ายังไม่เชื่อมต่อจะแสดงข้อมูลตัวอย่าง
+  const [live, setLive] = useState<Overview | null>(null);
+  const [liveErr, setLiveErr] = useState("");
+  const [refreshKey, setRefreshKey] = useState(0);
+  const refresh = useCallback(() => setRefreshKey((k) => k + 1), []);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLiveErr("");
+    fetch("/api/ads/overview?platform=" + platform)
+      .then(async (r) => {
+        if (r.status === 401) {
+          window.location.href = "/login";
+          return null;
+        }
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(data.error || "ดึงข้อมูลโฆษณาไม่สำเร็จ");
+        return data as Overview;
+      })
+      .then((data) => !cancelled && data && setLive(data))
+      .catch((e: Error) => !cancelled && (setLiveErr(e.message), setLive((prev) => prev)));
+    return () => {
+      cancelled = true;
+    };
+  }, [platform, refreshKey]);
+
+  const mode: "loading" | "mock" | "live" = live === null ? (liveErr ? "mock" : "loading") : live.anyConnected ? "live" : "mock";
+  const cur = mode === "live" ? live?.currency ?? "THB" : "THB";
+  const baht = (n: number) => money(n, cur);
+
+  const mock = PLATFORM_DATA[platform];
+  const d = { kpis: mode === "live" ? live!.kpis : mock.kpis };
+  const spend = mode === "live" ? live!.spend : BASE_SPEND.map((v) => v * mock.shareSpend);
+  const sales = mode === "live" ? live!.sales : BASE_SALES.map((v) => v * mock.shareSales);
+  const days = mode === "live" ? live!.days : undefined;
+  const mockCampaigns = CAMPAIGNS.filter((c) => platform === "all" || c.platform === platform);
+  const hasSeries = spend.length > 0;
 
   const active = aiOn && !stopped;
   const statusText = stopped ? "หยุดฉุกเฉิน" : aiOn ? "ทำงาน" : "ปิด";
@@ -152,6 +187,10 @@ export default function Dashboard({ user }: { user: { displayName: string; role:
             <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h10" /></svg>
             บันทึกการตัดสินใจ
           </a>
+          <a href="#connections">
+            <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path d="M10 14a4 4 0 005.7 0l3-3a4 4 0 00-5.7-5.7l-1 1" /><path d="M14 10a4 4 0 00-5.7 0l-3 3A4 4 0 0011 18.7l1-1" /></svg>
+            เชื่อมต่อบัญชีโฆษณา
+          </a>
           <a href="#settings">
             <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3" /><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1" /></svg>
             ตั้งค่า AI ของฉัน
@@ -174,7 +213,7 @@ export default function Dashboard({ user }: { user: { displayName: string; role:
               </button>
             ))}
           </div>
-          <span className="muted">7 วันล่าสุด (16–22 ต.ค.)</span>
+          <span className="muted">{mode === "live" && live?.days.length ? `7 วันล่าสุด (${live.days[0]} – ${live.days[live.days.length - 1]})` : "7 วันล่าสุด (16–22 ต.ค.)"}</span>
           <div className="spacer" />
           <div className="status">
             <span>สถานะ AI: <b className={statusClass}>{statusText}</b></span>
@@ -199,10 +238,31 @@ export default function Dashboard({ user }: { user: { displayName: string; role:
           <button type="button" className="logout" onClick={logout}>ออกจากระบบ</button>
         </header>
 
-        <div className="notice" role="note">
-          ตัวเลขในแดชบอร์ดนี้เป็นข้อมูลตัวอย่าง ยังไม่ได้เชื่อมบัญชีโฆษณา Meta / Google / TikTok
-          ส่วนการสร้างคอนเทนต์ด้วย AI (ใช้ API key ของคุณเอง) และคิวอนุมัติใช้งานได้จริง
-        </div>
+        {mode === "live" ? (
+          <div className="notice" role="note">
+            ตัวเลขนี้เป็นข้อมูลจริงจาก {live!.connected.length ? live!.connected.map((p) => (p === "meta" ? "Meta" : "TikTok")).join(" + ") : "บัญชีที่เชื่อมต่อ"} (อ่านอย่างเดียว เทียบกับ 7 วันก่อนหน้า)
+            Google Ads ยังไม่รองรับ ส่วนสวิตช์ AI และปุ่มหยุดฉุกเฉินยังไม่ได้ควบคุมโฆษณาจริง
+          </div>
+        ) : (
+          <div className="notice" role="note">
+            ตัวเลขในแดชบอร์ดนี้เป็นข้อมูลตัวอย่าง เชื่อมต่อบัญชี Meta / TikTok ได้ที่ส่วน “เชื่อมต่อบัญชีโฆษณา” ด้านล่างเพื่อดูข้อมูลจริง
+            ส่วนการสร้างคอนเทนต์ด้วย AI (ใช้ API key ของคุณเอง) และคิวอนุมัติใช้งานได้จริง
+          </div>
+        )}
+
+        {liveErr && <div role="alert" className="form-error">{liveErr}</div>}
+        {live?.needsReconnect.map((p) => (
+          <div key={"re" + p} role="alert" className="banner">
+            การเชื่อมต่อ {p === "meta" ? "Meta" : "TikTok"} หมดอายุหรือถูกเพิกถอน ไปที่ “เชื่อมต่อบัญชีโฆษณา” แล้วกดเชื่อมต่อใหม่
+          </div>
+        ))}
+        {live && Object.entries(live.errors).map(([p, m]) => (
+          <div key={"er" + p} role="alert" className="form-error">{p === "meta" ? "Meta" : "TikTok"}: {m}</div>
+        ))}
+        {live?.needsAccount.length ? (
+          <div className="notice" role="note">เชื่อมต่อแล้วแต่ยังไม่ได้เลือกบัญชีโฆษณา กรุณาเลือกที่ส่วน “เชื่อมต่อบัญชีโฆษณา”</div>
+        ) : null}
+        {mode === "live" && live?.note && <div className="notice" role="note">{live.note}</div>}
 
         {loaded && stopped && (
           <div role="status" className="banner">
@@ -210,8 +270,10 @@ export default function Dashboard({ user }: { user: { displayName: string; role:
           </div>
         )}
 
+        {mode === "loading" && <p className="muted">กำลังโหลดข้อมูล…</p>}
+
         <section aria-label="ตัวชี้วัดหลัก" className="kpis">
-          {d.kpis.map((k) => (
+          {mode !== "loading" && d.kpis.map((k) => (
             <div key={k.label} className="kpi">
               <div className="kpi-head">
                 <span className="kpi-label">{k.label}</span>
@@ -230,33 +292,60 @@ export default function Dashboard({ user }: { user: { displayName: string; role:
             <span className="legend"><i style={{ background: "#4c8dff" }} />ค่าโฆษณา (฿)</span>
             <span className="legend"><i style={{ background: "#3ddc84" }} />ยอดขาย (฿)</span>
           </div>
-          <TrendChart spend={spend} sales={sales} />
+          {mode !== "loading" && hasSeries ? <TrendChart spend={spend} sales={sales} days={days} currency={cur} /> : <p className="muted">{mode === "loading" ? "กำลังโหลด…" : "ไม่มีข้อมูลสำหรับแพลตฟอร์มนี้"}</p>}
         </section>
 
         <section aria-label="ตารางผลงานแคมเปญ" className="panel">
           <h2>ตารางผลงานแคมเปญ</h2>
           <div className="scroll">
-            <table style={{ minWidth: 640 }}>
-              <thead>
-                <tr><th>ชื่อ</th><th>สถานะ</th><th>งบ / วัน</th><th>ผลลัพธ์</th><th>ROAS</th><th>คุณภาพ</th></tr>
-              </thead>
-              <tbody>
-                {campaigns.map((c) => (
-                  <tr key={c.name}>
-                    <td style={{ fontWeight: 500 }}>{c.name}</td>
-                    <td><span className={"pill " + c.status}>{STATUS_TH[c.status]}</span></td>
-                    <td>{baht(c.budget)}</td>
-                    <td>{c.results} ออเดอร์</td>
-                    <td style={{ fontWeight: 600, color: qualityColor(c.quality) }}>{c.roas.toFixed(2)}</td>
-                    <td>
-                      <div className="bar" role="img" aria-label={`คุณภาพ ${c.quality} จาก 100`}>
-                        <div style={{ width: c.quality + "%", background: qualityColor(c.quality) }} />
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            {mode === "live" ? (
+              <table style={{ minWidth: 760 }}>
+                <thead>
+                  <tr><th>ชื่อ</th><th>แพลตฟอร์ม</th><th>สถานะ</th><th>งบ / วัน</th><th>ค่าโฆษณา 7 วัน</th><th>ผลลัพธ์</th><th>ROAS</th><th>สัดส่วนค่าโฆษณา</th></tr>
+                </thead>
+                <tbody>
+                  {live!.campaigns.length === 0 && <tr><td colSpan={8} className="muted">ไม่พบแคมเปญที่มีข้อมูลในช่วงนี้</td></tr>}
+                  {live!.campaigns.map((c) => (
+                    <tr key={c.platform + c.name}>
+                      <td style={{ fontWeight: 500 }}>{c.name}</td>
+                      <td>{PLATFORM_LABEL[c.platform]}</td>
+                      <td><span className={"pill " + c.status}>{STATUS_TH[c.status]}</span></td>
+                      <td>{c.budget === null ? "—" : baht(c.budget)}</td>
+                      <td>{baht(c.spend)}</td>
+                      <td>{c.results} ออเดอร์</td>
+                      <td style={{ fontWeight: 600 }}>{c.roas.toFixed(2)}</td>
+                      <td>
+                        <div className="bar" role="img" aria-label={`สัดส่วนค่าโฆษณา ${c.share}%`}>
+                          <div style={{ width: c.share + "%", background: "#4c8dff" }} />
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : (
+              <table style={{ minWidth: 640 }}>
+                <thead>
+                  <tr><th>ชื่อ</th><th>สถานะ</th><th>งบ / วัน</th><th>ผลลัพธ์</th><th>ROAS</th><th>คุณภาพ</th></tr>
+                </thead>
+                <tbody>
+                  {mockCampaigns.map((c) => (
+                    <tr key={c.name}>
+                      <td style={{ fontWeight: 500 }}>{c.name}</td>
+                      <td><span className={"pill " + c.status}>{STATUS_TH[c.status]}</span></td>
+                      <td>{baht(c.budget)}</td>
+                      <td>{c.results} ออเดอร์</td>
+                      <td style={{ fontWeight: 600, color: qualityColor(c.quality) }}>{c.roas.toFixed(2)}</td>
+                      <td>
+                        <div className="bar" role="img" aria-label={`คุณภาพ ${c.quality} จาก 100`}>
+                          <div style={{ width: c.quality + "%", background: qualityColor(c.quality) }} />
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
           </div>
         </section>
 
@@ -371,6 +460,8 @@ export default function Dashboard({ user }: { user: { displayName: string; role:
             </ul>
           </section>
         </div>
+
+        <AdConnections onChanged={refresh} />
 
         <SettingsPanel />
       </main>

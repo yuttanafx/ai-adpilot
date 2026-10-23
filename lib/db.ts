@@ -69,6 +69,19 @@ async function migrate(db: Db) {
     updated_at text not null,
     primary key (user_id, provider)
   )`);
+  // การเชื่อมต่อบัญชีโฆษณา (Meta / TikTok) ต่อผู้ใช้ — token เข้ารหัส AES-256-GCM เช่นเดียวกับ API key ของ AI
+  await db.query(`create table if not exists ad_connections (
+    user_id text not null references users(id) on delete cascade,
+    platform text not null,
+    enc text not null,
+    account_id text not null default '',
+    account_name text not null default '',
+    currency text not null default '',
+    status text not null default 'ok',
+    expires_at text,
+    updated_at text not null,
+    primary key (user_id, platform)
+  )`);
   await db.query(`create table if not exists user_state (
     user_id text not null references users(id) on delete cascade,
     key text not null,
