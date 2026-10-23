@@ -24,6 +24,7 @@ export default function CreativeGenerator({ onAdd }: Props) {
   const [count, setCount] = useState(3);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [noKey, setNoKey] = useState(false);
   const [results, setResults] = useState<Creative[]>([]);
   const [resultPlatform, setResultPlatform] = useState<AdPlatform>("meta");
   const [added, setAdded] = useState<Set<number>>(new Set());
@@ -32,6 +33,7 @@ export default function CreativeGenerator({ onAdd }: Props) {
     e.preventDefault();
     setBusy(true);
     setError("");
+    setNoKey(false);
     try {
       const res = await fetch("/api/generate-creatives", {
         method: "POST",
@@ -43,7 +45,10 @@ export default function CreativeGenerator({ onAdd }: Props) {
         return;
       }
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || "สร้างคอนเทนต์ไม่สำเร็จ");
+      if (!res.ok) {
+        if (data.code === "NO_KEY") setNoKey(true);
+        throw new Error(data.error || "สร้างคอนเทนต์ไม่สำเร็จ");
+      }
       setResults(data.creatives as Creative[]);
       setResultPlatform(platform);
       setAdded(new Set());
@@ -90,7 +95,11 @@ export default function CreativeGenerator({ onAdd }: Props) {
           <button type="submit" className="btn approve" disabled={busy}>{busy ? "AI กำลังเขียน…" : "สร้างคอนเทนต์"}</button>
           <span className="muted">AI อาจเขียนผิดพลาดได้ ตรวจสอบคำโฆษณาก่อนอนุมัติเสมอ</span>
         </div>
-        {error && <div role="alert" className="form-error" style={{ marginTop: 12 }}>{error}</div>}
+        {error && (
+          <div role="alert" className="form-error" style={{ marginTop: 12 }}>
+            {error} {noKey && <a href="#settings" style={{ textDecoration: "underline" }}>ไปที่ตั้งค่า AI</a>}
+          </div>
+        )}
       </form>
 
       {results.length > 0 && (

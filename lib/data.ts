@@ -82,13 +82,6 @@ export const CREATIVES = [
 
 export type LogEntry = { id: string; ts: string; action: string; reason: string };
 
-export const SEED_LOG: LogEntry[] = [
-  { id: "s4", ts: "2026-10-22T10:18:00+07:00", action: "เพิ่มงบแคมเปญ B ขึ้น 20%", reason: "ROAS 4.82" },
-  { id: "s3", ts: "2026-10-21T16:40:00+07:00", action: "หยุดใช้ครีเอทีฟ #F", reason: "CTR ต่ำกว่า 0.8% ติดต่อกัน 3 วัน" },
-  { id: "s2", ts: "2026-10-20T10:05:00+07:00", action: "หยุดชุดโฆษณา D ชั่วคราว", reason: "CPA สูง เกิน ฿250" },
-  { id: "s1", ts: "2026-10-19T09:12:00+07:00", action: "ย้ายงบ ฿1,000/วัน จากชุดโฆษณา C ไปแคมเปญ A", reason: "ROAS ต่างกัน 3.3 จุด" },
-];
-
 export type QueueStatus = "pending" | "approved" | "rejected";
 export type QueueItem = {
   id: string;
@@ -103,12 +96,6 @@ export type QueueItem = {
   from: string;
   to: string;
 };
-
-export const SEED_QUEUE: QueueItem[] = [
-  { id: "a1", title: "โปรโมชันซัมเมอร์ – แบบที่ 1", platform: "meta", headline: "ซัมเมอร์นี้ ลดสูงสุด 20%", primaryText: "ช้อปสินค้าขายดีในราคาพิเศษ ถึงสิ้นเดือนนี้เท่านั้น", status: "pending", from: "#9ab8ff", to: "#4c8dff" },
-  { id: "a2", title: "รีมาร์เก็ตติ้ง – แบบที่ 2", platform: "meta", headline: "ของที่คุณดูไว้ ยังรออยู่นะ", primaryText: "กลับมาสั่งซื้อวันนี้ รับส่วนลดสำหรับลูกค้าเก่า", status: "pending", from: "#ffd479", to: "#ff8a5c" },
-  { id: "a3", title: "ค้นหาแบรนด์ – แบบที่ 3", platform: "google", headline: "ร้านทางการ ส่งฟรีทั่วไทย", primaryText: "สั่งตรงจากแบรนด์ ของแท้ มั่นใจได้", status: "pending", from: "#7fe0a8", to: "#3ddc84" },
-];
 
 export const NOTIFICATIONS = [
   { text: "งบเหลือน้อย – แคมเปญ A", time: "12 นาทีที่แล้ว" },

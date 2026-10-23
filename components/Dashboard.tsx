@@ -3,6 +3,7 @@
 import { useState } from "react";
 import TrendChart from "./TrendChart";
 import CreativeGenerator, { type Creative } from "./CreativeGenerator";
+import SettingsPanel from "./SettingsPanel";
 import { useStored } from "@/lib/useStored";
 import { BRAND_NAME } from "@/lib/brand";
 import {
@@ -13,8 +14,6 @@ import {
   NOTIFICATIONS,
   PLATFORMS,
   PLATFORM_DATA,
-  SEED_LOG,
-  SEED_QUEUE,
   STATUS_TH,
   type AdPlatform,
   type LogEntry,
@@ -36,12 +35,13 @@ function qualityColor(q: number) {
 
 const STATE_TEXT = { pending: "รอตรวจสอบ", approved: "อนุมัติแล้ว", rejected: "ไม่อนุมัติ" } as const;
 
-export default function Dashboard() {
+export default function Dashboard({ user }: { user: { displayName: string; role: "admin" | "user" } }) {
   const [platform, setPlatform] = useState<Platform>("all");
-  const [aiOn, setAiOn] = useStored("fx.aiOn", true);
-  const [stopped, setStopped] = useStored("fx.stopped", false);
-  const [queue, setQueue] = useStored<QueueItem[]>("fx.queue", SEED_QUEUE);
-  const [log, setLog] = useStored<LogEntry[]>("fx.log", SEED_LOG);
+  const [aiOn, setAiOn, r1] = useStored("aiOn", true);
+  const [stopped, setStopped, r2] = useStored("stopped", false);
+  const [queue, setQueue, r3] = useStored<QueueItem[]>("queue", []);
+  const [log, setLog, r4] = useStored<LogEntry[]>("log", []);
+  const loaded = r1 && r2 && r3 && r4;
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState({ headline: "", primaryText: "" });
 
@@ -152,6 +152,16 @@ export default function Dashboard() {
             <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h10" /></svg>
             บันทึกการตัดสินใจ
           </a>
+          <a href="#settings">
+            <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3" /><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1" /></svg>
+            ตั้งค่า AI ของฉัน
+          </a>
+          {user.role === "admin" && (
+            <a href="/admin">
+              <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3.5" /><path d="M2.5 20c.6-3.6 3.2-5.5 6.5-5.5s5.9 1.9 6.5 5.5" /><path d="M16 4.5a3.5 3.5 0 010 7M18.5 14.8c1.7.7 2.8 2.3 3 5.2" /></svg>
+              จัดการผู้ใช้
+            </a>
+          )}
         </nav>
       </aside>
 
@@ -185,15 +195,16 @@ export default function Dashboard() {
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg>
             {stopped ? "เปิดใช้งานต่อ" : "หยุดฉุกเฉิน"}
           </button>
+          <span className="userchip"><b>{user.displayName}</b>{user.role === "admin" && <span className="pill role-admin">แอดมิน</span>}</span>
           <button type="button" className="logout" onClick={logout}>ออกจากระบบ</button>
         </header>
 
         <div className="notice" role="note">
           ตัวเลขในแดชบอร์ดนี้เป็นข้อมูลตัวอย่าง ยังไม่ได้เชื่อมบัญชีโฆษณา Meta / Google / TikTok
-          ส่วนการสร้างคอนเทนต์ด้วย AI และคิวอนุมัติใช้งานได้จริง
+          ส่วนการสร้างคอนเทนต์ด้วย AI (ใช้ API key ของคุณเอง) และคิวอนุมัติใช้งานได้จริง
         </div>
 
-        {stopped && (
+        {loaded && stopped && (
           <div role="status" className="banner">
             หยุดฉุกเฉินอยู่ ระบบ AI ระงับการปรับงบ ปรับราคาประมูล และเปิดโฆษณาใหม่ทั้งหมด และจะอนุมัติโฆษณาไม่ได้ กด “เปิดใช้งานต่อ” เพื่อคืนการควบคุมให้ AI
           </div>
@@ -273,6 +284,9 @@ export default function Dashboard() {
             <table style={{ minWidth: 560 }}>
               <thead><tr><th>วันที่</th><th>การกระทำ</th><th>เหตุผล</th></tr></thead>
               <tbody>
+                {recentLog.length === 0 && (
+                  <tr><td colSpan={3} className="muted">ยังไม่มีบันทึก การอนุมัติและการกดปุ่มต่างๆ จะถูกบันทึกที่นี่</td></tr>
+                )}
                 {recentLog.map((l) => (
                   <tr key={l.id}>
                     <td style={{ whiteSpace: "nowrap" }}>{fmtTime(l.ts)}</td>
@@ -325,7 +339,7 @@ export default function Dashboard() {
                         <div className="row">
                           {q.status === "pending" ? (
                             <>
-                              <button type="button" className="btn approve" disabled={stopped} title={stopped ? "ปิดอยู่ระหว่างหยุดฉุกเฉิน" : undefined} onClick={() => approve(q)}>อนุมัติ</button>
+                              <button type="button" className="btn approve" disabled={stopped || !loaded} title={stopped ? "ปิดอยู่ระหว่างหยุดฉุกเฉิน" : undefined} onClick={() => approve(q)}>อนุมัติ</button>
                               <button type="button" className="btn edit" onClick={() => startEdit(q)}>แก้ไข</button>
                               <button type="button" className="btn reject" onClick={() => reject(q)}>ไม่อนุมัติ</button>
                             </>
@@ -357,6 +371,8 @@ export default function Dashboard() {
             </ul>
           </section>
         </div>
+
+        <SettingsPanel />
       </main>
     </div>
   );
