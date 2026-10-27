@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import TrendChart from "./TrendChart";
 import CreativeGenerator, { type Creative } from "./CreativeGenerator";
 import SettingsPanel from "./SettingsPanel";
+import LivePanel from "./LivePanel";
 import MediaPicker, { deleteMedia, useMediaCaps } from "./MediaPicker";
 import { mediaUrl, type MediaRef } from "@/lib/mediaTypes";
 import AdConnections from "./AdConnections";
@@ -191,6 +192,10 @@ export default function Dashboard({ user }: { user: { displayName: string; role:
             <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8L12 3z" /><path d="M18 15l.8 2.2L21 18l-2.2.8L18 21l-.8-2.2L15 18l2.2-.8L18 15z" /></svg>
             สร้างคอนเทนต์ AI
           </a>
+          <a href="#live">
+            <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="2.5" /><path d="M7.8 7.8a6 6 0 000 8.4M16.2 7.8a6 6 0 010 8.4M4.9 4.9a10 10 0 000 14.2M19.1 4.9a10 10 0 010 14.2" /></svg>
+            ไลฟ์
+          </a>
           <a href="#creatives">
             <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2" /><circle cx="9" cy="10" r="2" /><path d="M21 16l-5-5-8 9" /></svg>
             ครีเอทีฟ
@@ -366,6 +371,8 @@ export default function Dashboard({ user }: { user: { displayName: string; role:
         </section>
 
         <CreativeGenerator onAdd={addCreative} />
+
+        <LivePanel />
 
         <section id="creatives" aria-label="ครีเอทีฟที่ชนะและแพ้" className="panel">
           <h2>ครีเอทีฟที่ชนะและแพ้</h2>
