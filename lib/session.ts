@@ -1,6 +1,7 @@
 import { cookies } from "next/headers";
 import { COOKIE_NAME, SESSION_DAYS, authSecret, signSession, verifySession } from "./auth";
 import { getDb } from "./db";
+import { userById } from "./store";
 import { sessionCookieOptions } from "./embed";
 import type { Provider } from "./providers";
 
@@ -20,11 +21,7 @@ export async function currentUser(): Promise<User | null> {
   const token = (await cookies()).get(COOKIE_NAME)?.value;
   const p = await verifySession(token, secret);
   if (!p) return null;
-  const rows = await (await getDb()).query(
-    "select id, username, display_name, role, active, token_version, ai_provider, ai_model from users where id = $1",
-    [p.uid],
-  );
-  const u = rows[0];
+  const u = await userById(await getDb(), p.uid);
   if (!u || !u.active || u.token_version !== p.tv) return null;
   return {
     id: u.id,

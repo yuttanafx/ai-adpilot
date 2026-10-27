@@ -1,5 +1,6 @@
 import { generate } from "@/lib/ai";
 import { AppError, getDb } from "@/lib/db";
+import { getKeyEnc } from "@/lib/store";
 import { json, withUser } from "@/lib/http";
 import { PROVIDERS } from "@/lib/providers";
 import { rateLimit } from "@/lib/rateLimit";
@@ -51,11 +52,11 @@ export const POST = withUser(async (req, user) => {
   const n = Math.min(Math.max(Math.floor(Number(body.count)) || 3, 1), 8);
 
   // ใช้ API key ของผู้ใช้คนนี้เอง (เข้ารหัสไว้ในฐานข้อมูล)
-  const rows = await (await getDb()).query("select enc from user_keys where user_id = $1 and provider = $2", [user.id, user.provider]);
-  if (!rows[0]) {
+  const enc = await getKeyEnc(await getDb(), user.id, user.provider);
+  if (!enc) {
     throw new AppError(`ยังไม่ได้ตั้ง API key ของ ${PROVIDERS[user.provider].label} กรุณาไปที่ “ตั้งค่า AI” ก่อน`, 400, "NO_KEY");
   }
-  const apiKey = decryptSecret(rows[0].enc);
+  const apiKey = decryptSecret(enc);
 
   const prompt = `You write paid-social and search ad creatives.
 

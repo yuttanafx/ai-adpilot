@@ -1,13 +1,12 @@
-import { AppError, getDb, newId } from "@/lib/db";
+import { AppError, getDb } from "@/lib/db";
+import { allKeyProviders, createUser, listUsers } from "@/lib/store";
 import { json, readJson, str, validPassword, withAdmin } from "@/lib/http";
 import { generatePassword, hashPassword } from "@/lib/security";
 
 export const GET = withAdmin(async () => {
   const db = await getDb();
-  const users = await db.query(
-    "select id, username, display_name, role, active, created_at, last_login, ai_provider from users order by created_at asc",
-  );
-  const keys = await db.query("select user_id, provider from user_keys");
+  const users = await listUsers(db);
+  const keys = await allKeyProviders(db);
   return json({
     users: users.map((u) => ({
       id: u.id,
@@ -33,12 +32,7 @@ export const POST = withAdmin(async (req) => {
   if (supplied) validPassword(supplied);
   const password = supplied || generatePassword();
   const db = await getDb();
-  const exists = await db.query("select 1 from users where username = $1", [username]);
-  if (exists.length) throw new AppError("มีชื่อผู้ใช้นี้อยู่แล้ว", 409);
-  await db.query(
-    "insert into users (id, username, display_name, role, password_hash, created_at) values ($1,$2,$3,$4,$5,$6)",
-    [newId(), username, displayName, role, await hashPassword(password), new Date().toISOString()],
-  );
+  await createUser(db, { username, displayName, role, passwordHash: await hashPassword(password) }); // ชื่อซ้ำ → 409
   // แสดงรหัสผ่านครั้งเดียวตอนสร้าง (เก็บในระบบเป็นแฮชเท่านั้น ดูย้อนหลังไม่ได้)
   return json({ ok: true, username, password }, 201);
 });

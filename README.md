@@ -47,24 +47,32 @@ cp .env.example .env.local
 npm run dev
 ```
 
-เปิด http://localhost:3000 ถ้าไม่ตั้งค่าอะไร ระบบใช้ฐานข้อมูลฝังในโฟลเดอร์ `.data/` และสร้างแอดมินเริ่มต้น `admin` / `admin12345` (ใช้เฉพาะในเครื่องเท่านั้น)
+เปิด http://localhost:3000 ถ้าไม่ตั้งค่าอะไร ระบบใช้ที่เก็บข้อมูลจำลองในโฟลเดอร์ `.data/` (ไม่ใช่ Firebase จริง ใช้เฉพาะพัฒนา) และสร้างแอดมินเริ่มต้น `admin` / `admin12345` (ใช้เฉพาะในเครื่องเท่านั้น)
 
 ## ขึ้น Vercel
 
-1. สร้างฐานข้อมูล Postgres ฟรี เช่น [Neon](https://neon.tech) หรือ Supabase แล้วคัดลอก connection string
-2. อัปโค้ดขึ้น GitHub แล้ว import ที่ vercel.com (**Add New → Project**)
-3. ที่ **Environment Variables** เพิ่ม
-   - `DATABASE_URL` (connection string ของ Postgres)
+1. **สร้างฐานข้อมูล Firebase:** ที่ [console.firebase.google.com](https://console.firebase.google.com) สร้างโปรเจกต์ → **Build → Firestore Database → Create database** (เลือก **Native mode** และเลือกโลเคชันใกล้ไทย เช่น `asia-southeast1`)
+2. **สร้างคีย์ให้เซิร์ฟเวอร์:** **Project settings (ไอคอนเฟือง) → Service accounts → Generate new private key** จะได้ไฟล์ `.json` (เก็บเป็นความลับ ห้ามอัปขึ้น GitHub)
+3. **ตั้ง Security Rules** ที่ Firestore → Rules เป็นปิดทั้งหมด เพราะแอปนี้เข้าถึงผ่านเซิร์ฟเวอร์เท่านั้น:
+   ```
+   rules_version = '2';
+   service cloud.firestore { match /databases/{db}/documents { match /{document=**} { allow read, write: if false; } } }
+   ```
+4. อัปโค้ดขึ้น GitHub แล้ว import ที่ vercel.com (**Add New → Project**)
+5. ที่ **Environment Variables** (ติ๊ก Production) เพิ่ม
+   - `FIREBASE_SERVICE_ACCOUNT` = เนื้อหาไฟล์ `.json` จากข้อ 2 ทั้งไฟล์
    - `AUTH_SECRET` (สตริงสุ่มยาวๆ จาก `openssl rand -hex 32` ห้ามเปลี่ยนภายหลัง)
    - `ADMIN_USERNAME` และ `ADMIN_PASSWORD` (แอดมินคนแรก อย่างน้อย 8 ตัวอักษร)
-4. กด Deploy แล้วเข้าสู่ระบบด้วยแอดมิน → เปิดหน้า **จัดการผู้ใช้** เพื่อสร้างบัญชีให้คนอื่น
+6. กด Deploy แล้วเข้าสู่ระบบด้วยแอดมิน → เปิดหน้า **จัดการผู้ใช้** เพื่อสร้างบัญชีให้คนอื่น
 
-ตารางในฐานข้อมูลถูกสร้างอัตโนมัติเมื่อมีคนเข้าใช้ครั้งแรก ถ้าไม่ตั้ง `AUTH_SECRET` หรือ `DATABASE_URL` บน production ระบบจะปิดการเข้าถึงเพื่อความปลอดภัย
+คอลเลกชันใน Firestore ถูกสร้างอัตโนมัติเมื่อมีข้อมูลแรก (`users`, `usernames` และข้อมูลย่อยของผู้ใช้: `api_keys`, `ad_connections`, `state`) ถ้าไม่ตั้ง `AUTH_SECRET` หรือ `FIREBASE_SERVICE_ACCOUNT` บน production ระบบจะปิดการเข้าถึงเพื่อความปลอดภัย
+
+**ข้อควรรู้เรื่อง Firestore:** ข้อมูลคิวต่อผู้ใช้จำกัดราว 900 KB ต่อรายการสถานะ (ขีดจำกัด 1 MiB ต่อเอกสารของ Firestore) และระบบล็อกอินยังเป็นของแอปเอง (คุกกี้ + รหัสผ่านแฮช) ไม่ได้ใช้ Firebase Authentication
 
 ## โครงสร้าง
 
 - `app/login` หน้าล็อกอิน (มีฉากเคลื่อนไหว `components/LoginScene.tsx`), `app/admin` หน้าแอดมิน, `app/page.tsx` แดชบอร์ด
 - `middleware.ts` ตรวจการล็อกอินและ Origin ทุกหน้าและ API
-- `lib/db.ts` ฐานข้อมูลและโครงตาราง, `lib/security.ts` แฮชรหัสผ่านและเข้ารหัส key, `lib/ai.ts` เรียก Gemini / Claude / GPT
+- `lib/db.ts` เชื่อมต่อ Firebase, `lib/store.ts` อ่าน/เขียนข้อมูลผู้ใช้บน Firestore, `lib/memstore.ts` ที่เก็บจำลองสำหรับพัฒนา, `lib/security.ts` แฮชรหัสผ่านและเข้ารหัส key, `lib/ai.ts` เรียก Gemini / Claude / GPT
 - `lib/brand.ts` ชื่อแบรนด์ (แก้ที่เดียว), `lib/providers.ts` รายชื่อผู้ให้บริการและโมเดลเริ่มต้น
 - `app/api/*` API ทั้งหมด, `app/api/ads/*` OAuth + ดึงรายงาน, `lib/ads/*` ตัวเชื่อม Meta (`meta.ts`) / TikTok (`tiktok.ts`) และตัวรวมข้อมูล (`overview.ts`), `components/AdConnections.tsx` หน้าเชื่อมต่อ

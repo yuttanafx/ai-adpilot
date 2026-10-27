@@ -1,7 +1,7 @@
+import type { Firestore } from "firebase-admin/firestore";
 import { hashPassword } from "./security";
 
-type Row = Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
-export type Db = { query: (sql: string, params?: unknown[]) => Promise<Row[]> };
+export type Db = Firestore;
 
 const g = globalThis as unknown as { __fxDb?: Promise<Db> };
 
@@ -15,138 +15,116 @@ export class AppError extends Error {
   }
 }
 
+export const newId = () => crypto.randomUUID();
+
+type Cred = { projectId: string; clientEmail: string; privateKey: string };
+
+// อ่านข้อมูลรับรอง Firebase: FIREBASE_SERVICE_ACCOUNT (JSON หรือ base64 ของ JSON) หรือแยก 3 ตัวแปร
+function readCredentials(): Cred | null {
+  const raw = process.env.FIREBASE_SERVICE_ACCOUNT?.trim();
+  if (raw) {
+    let text = raw;
+    if (!text.startsWith("{")) {
+      try {
+        text = Buffer.from(text, "base64").toString("utf8");
+      } catch {
+        /* ใช้ข้อความเดิม */
+      }
+    }
+    let j: { project_id?: string; client_email?: string; private_key?: string };
+    try {
+      j = JSON.parse(text);
+    } catch {
+      throw new AppError("FIREBASE_SERVICE_ACCOUNT ไม่ใช่ JSON ที่ถูกต้อง (ให้วางเนื้อหาไฟล์ service account ทั้งไฟล์)", 503, "FIREBASE_CONFIG");
+    }
+    if (!j.project_id || !j.client_email || !j.private_key) {
+      throw new AppError("FIREBASE_SERVICE_ACCOUNT ขาด project_id / client_email / private_key", 503, "FIREBASE_CONFIG");
+    }
+    return { projectId: j.project_id, clientEmail: j.client_email, privateKey: j.private_key };
+  }
+  const projectId = process.env.FIREBASE_PROJECT_ID?.trim();
+  const clientEmail = process.env.FIREBASE_CLIENT_EMAIL?.trim();
+  const privateKey = process.env.FIREBASE_PRIVATE_KEY;
+  if (projectId && clientEmail && privateKey) {
+    return { projectId, clientEmail, privateKey: privateKey.replace(/\\n/g, "\n").replace(/^"|"$/g, "") };
+  }
+  return null;
+}
+
+const relatedEnvNames = () => Object.keys(process.env).filter((k) => /FIREBASE|FIRESTORE|GOOGLE|GCP/i.test(k)).slice(0, 12);
+
+async function connect(): Promise<Db> {
+  const emulator = Boolean(process.env.FIRESTORE_EMULATOR_HOST);
+  const cred = readCredentials();
+
+  if (!cred && !emulator) {
+    if (process.env.NODE_ENV === "production") {
+      throw new AppError(
+        `ยังไม่ได้ตั้งค่า Firebase (FIREBASE_SERVICE_ACCOUNT) บนเซิร์ฟเวอร์ — สภาพแวดล้อมที่รันอยู่: ${process.env.VERCEL_ENV || process.env.NODE_ENV}; ` +
+          `ตัวแปรที่เกี่ยวข้องที่เห็น: ${relatedEnvNames().join(", ") || "ไม่มีเลย"} (ต้องติ๊ก Environment ให้ตรงกับสภาพแวดล้อมนี้ แล้ว Redeploy)`,
+        503,
+        "FIREBASE_CONFIG",
+      );
+    }
+    // โหมดพัฒนาในเครื่องโดยไม่มี Firebase: เก็บในหน่วยความจำ + ไฟล์ .data/dev-store.json (ใช้เฉพาะตอนพัฒนา)
+    const { createMemoryDb } = await import("./memstore");
+    console.warn("[dev] ไม่พบ FIREBASE_SERVICE_ACCOUNT — ใช้ที่เก็บข้อมูลจำลองใน .data/dev-store.json (ไม่ใช่ Firebase จริง)");
+    return createMemoryDb() as unknown as Db;
+  }
+
+  const { cert, getApps, initializeApp } = await import("firebase-admin/app");
+  const { getFirestore } = await import("firebase-admin/firestore");
+  const fresh = getApps().length === 0;
+  const app = fresh
+    ? initializeApp(
+        cred
+          ? { credential: cert({ projectId: cred.projectId, clientEmail: cred.clientEmail, privateKey: cred.privateKey }), projectId: cred.projectId }
+          : { projectId: process.env.FIREBASE_PROJECT_ID || "demo-adpilot" },
+      )
+      : getApps()[0];
+  const db = getFirestore(app);
+  if (fresh) db.settings({ ignoreUndefinedProperties: true });
+  return db;
+}
+
+const HINTS: Record<number, string> = {
+  5: "ยังไม่ได้สร้างฐานข้อมูล Firestore ในโปรเจกต์นี้ (Firebase Console → Build → Firestore Database → Create database แบบ Native mode)",
+  7: "service account ไม่มีสิทธิ์ใช้ Firestore หรือยังไม่ได้เปิด Cloud Firestore API ของโปรเจกต์",
+  16: "service account หรือ private key ไม่ถูกต้อง/ถูกเพิกถอน ให้สร้างคีย์ใหม่",
+  14: "เข้าถึงเซิร์ฟเวอร์ Firestore ไม่ได้ (เครือข่าย หรือ FIRESTORE_EMULATOR_HOST ชี้ผิด)",
+};
+
+async function init(): Promise<Db> {
+  const db = await connect();
+  await db.collection("users").limit(1).get(); // ตรวจการเชื่อมต่อ/สิทธิ์ตั้งแต่ต้น
+  await seedAdmin(db);
+  return db;
+}
+
 export function getDb(): Promise<Db> {
   if (!g.__fxDb) {
     g.__fxDb = init().catch((e) => {
       g.__fxDb = undefined;
       if (e instanceof AppError) throw e;
-      console.error("[db] เริ่มต้นฐานข้อมูลไม่สำเร็จ", e);
-      // แสดงรหัสและข้อความ error ที่ตัดข้อมูลอ่อนไหวออก (ชื่อผู้ใช้ ชื่อโฮสต์ ข้อความในเครื่องหมายคำพูด) เพื่อให้ตรวจสอบสาเหตุได้
-      const code = typeof e?.code === "string" ? e.code : "";
+      console.error("[db] เริ่มต้น Firebase ไม่สำเร็จ", e);
+      const code = typeof e?.code === "number" || typeof e?.code === "string" ? String(e.code) : "";
       const raw = e instanceof Error ? e.message : String(e);
       const safe = raw
         .replace(/"[^"]*"/g, '"…"')
         .replace(/[a-z0-9_-]+(\.[a-z0-9_-]+)+/gi, "…")
         .replace(/\s+/g, " ")
         .slice(0, 140);
-      const name = e instanceof Error ? e.name : "Error";
-      throw new AppError(
-        `เชื่อมต่อหรือเตรียมฐานข้อมูลไม่สำเร็จ (${code || name}: ${safe}) ตรวจสอบ DATABASE_URL / POSTGRES_URL`,
-        503,
-        "DB",
-      );
+      const hintText = HINTS[Number(code)] ?? (code === "app/invalid-credential" ? "private key ผิดรูปแบบ ให้คัดลอก JSON จากไฟล์ service account มาทั้งไฟล์โดยไม่แก้ไข" : "");
+      const hint = hintText ? ` — ${hintText}` : "";
+      throw new AppError(`เชื่อมต่อ Firebase ไม่สำเร็จ (${code || (e instanceof Error ? e.name : "Error")}: ${safe})${hint}`, 503, "DB");
     });
   }
   return g.__fxDb;
 }
 
-const CERT_ERRORS = ["SELF_SIGNED_CERT_IN_CHAIN", "DEPTH_ZERO_SELF_SIGNED_CERT", "UNABLE_TO_VERIFY_LEAF_SIGNATURE", "UNABLE_TO_GET_ISSUER_CERT_LOCALLY"];
-
-// พารามิเตอร์ sslmode / supa ที่ Vercel ใส่มาทำให้ pg บังคับตรวจใบรับรองแบบเข้มและพังกับ pooler บางเจ้า จึงตัดออกแล้วกำหนด ssl เอง
-function cleanUrl(u: string): string {
-  try {
-    const x = new URL(u);
-    x.searchParams.delete("sslmode");
-    x.searchParams.delete("supa");
-    return x.toString();
-  } catch {
-    return u;
-  }
-}
-
-async function connectPg(url: string): Promise<Db> {
-  const { Pool } = await import("pg");
-  const conn = cleanUrl(url);
-  const local = /@(localhost|127\.0\.0\.1|\[::1\])[:/]/.test(conn);
-  const mk = (ssl: boolean | { rejectUnauthorized: boolean }) =>
-    new Pool({ connectionString: conn, max: 5, ssl: local ? undefined : ssl, connectionTimeoutMillis: 15_000 });
-  let pool = mk(true); // ตรวจใบรับรองเต็มรูปแบบก่อน
-  pool.on("error", (err) => console.error("[db] pool error", err.message));
-  try {
-    await pool.query("select 1");
-  } catch (e) {
-    const code = (e as { code?: string })?.code ?? "";
-    if (!CERT_ERRORS.includes(code)) throw e;
-    // ผู้ให้บริการบางรายใช้ CA ที่ Node ไม่รู้จัก: ยังเข้ารหัสการเชื่อมต่ออยู่ แต่ไม่ตรวจห่วงโซ่ใบรับรอง
-    console.warn("[db] ตรวจใบรับรอง SSL ไม่ผ่าน (" + code + ") ลองใหม่แบบ rejectUnauthorized=false");
-    await pool.end().catch(() => {});
-    pool = mk({ rejectUnauthorized: false });
-    await pool.query("select 1");
-  }
-  return { query: async (s, p) => (await pool.query(s, p as unknown[])).rows };
-}
-
-async function init(): Promise<Db> {
-  let db: Db;
-  // รองรับทั้ง DATABASE_URL และตัวแปรที่ Vercel / Neon สร้างให้อัตโนมัติ (POSTGRES_URL ฯลฯ)
-  const dbUrl = process.env.DATABASE_URL || process.env.POSTGRES_URL || process.env.POSTGRES_PRISMA_URL || process.env.POSTGRES_URL_NON_POOLING;
-  if (dbUrl) {
-    db = await connectPg(dbUrl);
-  } else {
-    if (process.env.NODE_ENV === "production") {
-      throw new AppError("ยังไม่ได้ตั้งค่า DATABASE_URL หรือ POSTGRES_URL (ฐานข้อมูล Postgres) บนเซิร์ฟเวอร์", 503);
-    }
-    // โหมดพัฒนาในเครื่อง: ใช้ Postgres แบบฝัง เก็บไฟล์ไว้ที่ .data/
-    const { PGlite } = await import("@electric-sql/pglite");
-    const { mkdirSync } = await import("node:fs");
-    mkdirSync("./.data", { recursive: true });
-    const pg = new PGlite("./.data/pglite");
-    db = { query: async (s, p) => (await pg.query(s, p as unknown[])).rows as Row[] };
-  }
-  await migrate(db);
-  await seedAdmin(db);
-  return db;
-}
-
-async function migrate(db: Db) {
-  await db.query(`create table if not exists users (
-    id text primary key,
-    username text unique not null,
-    display_name text not null,
-    role text not null default 'user',
-    password_hash text not null,
-    active boolean not null default true,
-    token_version integer not null default 0,
-    ai_provider text not null default 'gemini',
-    ai_model text not null default '',
-    created_at text not null,
-    last_login text
-  )`);
-  await db.query(`create table if not exists user_keys (
-    user_id text not null references users(id) on delete cascade,
-    provider text not null,
-    enc text not null,
-    last4 text not null,
-    updated_at text not null,
-    primary key (user_id, provider)
-  )`);
-  // การเชื่อมต่อบัญชีโฆษณา (Meta / TikTok) ต่อผู้ใช้ — token เข้ารหัส AES-256-GCM เช่นเดียวกับ API key ของ AI
-  await db.query(`create table if not exists ad_connections (
-    user_id text not null references users(id) on delete cascade,
-    platform text not null,
-    enc text not null,
-    account_id text not null default '',
-    account_name text not null default '',
-    currency text not null default '',
-    status text not null default 'ok',
-    expires_at text,
-    updated_at text not null,
-    primary key (user_id, platform)
-  )`);
-  await db.query(`create table if not exists user_state (
-    user_id text not null references users(id) on delete cascade,
-    key text not null,
-    value text not null,
-    updated_at text not null,
-    primary key (user_id, key)
-  )`);
-}
-
-export const newId = () => crypto.randomUUID();
-
 async function seedAdmin(db: Db) {
-  const admins = await db.query("select id from users where role = 'admin' limit 1");
-  if (admins.length) return;
+  const { anyAdmin, createUser } = await import("./store");
+  if (await anyAdmin(db)) return;
   const dev = process.env.NODE_ENV !== "production";
   const username = (process.env.ADMIN_USERNAME || (dev ? "admin" : "")).trim().toLowerCase();
   const password = process.env.ADMIN_PASSWORD || (dev ? "admin12345" : "");
@@ -155,8 +133,9 @@ async function seedAdmin(db: Db) {
     return;
   }
   if (dev && !process.env.ADMIN_PASSWORD) console.warn("[dev] สร้างแอดมินเริ่มต้น admin / admin12345 (ใช้เฉพาะในเครื่อง)");
-  await db.query(
-    "insert into users (id, username, display_name, role, password_hash, created_at) values ($1,$2,$3,'admin',$4,$5) on conflict (username) do nothing",
-    [newId(), username, "ผู้ดูแลระบบ", await hashPassword(password), new Date().toISOString()],
-  );
+  try {
+    await createUser(db, { username, displayName: "ผู้ดูแลระบบ", role: "admin", passwordHash: await hashPassword(password) });
+  } catch (e) {
+    if (!(e instanceof AppError && e.status === 409)) throw e; // มีคนสร้างพร้อมกันแล้ว
+  }
 }
