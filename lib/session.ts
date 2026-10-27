@@ -1,6 +1,7 @@
 import { cookies } from "next/headers";
 import { COOKIE_NAME, SESSION_DAYS, authSecret, signSession, verifySession } from "./auth";
 import { getDb } from "./db";
+import { sessionCookieOptions } from "./embed";
 import type { Provider } from "./providers";
 
 export type User = {
@@ -43,12 +44,6 @@ export async function makeSessionCookie(userId: string, tokenVersion: number) {
   return {
     name: COOKIE_NAME,
     value: await signSession({ uid: userId, exp, tv: tokenVersion }, secret),
-    options: {
-      httpOnly: true,
-      sameSite: "lax" as const,
-      secure: process.env.NODE_ENV === "production",
-      path: "/",
-      maxAge: SESSION_DAYS * 86400,
-    },
+    options: sessionCookieOptions(SESSION_DAYS * 86400),
   };
 }

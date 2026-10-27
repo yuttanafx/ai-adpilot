@@ -21,7 +21,19 @@ export default function LoginPage() {
         body: JSON.stringify({ username, password }),
       });
       if (res.ok) {
-        window.location.href = "/";
+        // ตรวจว่าเบราว์เซอร์เก็บคุกกี้ไว้จริง (ในกรอบ iframe บางเบราว์เซอร์บล็อกคุกกี้ข้ามเว็บ)
+        const me = await fetch("/api/me", { cache: "no-store" });
+        if (me.ok) {
+          window.location.href = "/" + window.location.hash; // คงตำแหน่ง เช่น #queue
+          return;
+        }
+        const framed = window.self !== window.top;
+        setError(
+          framed
+            ? "เข้าสู่ระบบสำเร็จ แต่เบราว์เซอร์บล็อกคุกกี้ในกรอบนี้ (พบบ่อยใน Safari / iPhone / โหมดไม่ระบุตัวตน) กรุณากด “เปิดในแท็บใหม่” เพื่อใช้งาน"
+            : "เข้าสู่ระบบสำเร็จ แต่เบราว์เซอร์ไม่ยอมเก็บคุกกี้ กรุณาเปิดการใช้งานคุกกี้แล้วลองใหม่",
+        );
+        setBusy(false);
         return;
       }
       const data = await res.json().catch(() => ({}));

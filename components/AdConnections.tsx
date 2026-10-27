@@ -34,6 +34,8 @@ export default function AdConnections({ onChanged }: { onChanged: () => void }) 
   const [pick, setPick] = useState<Record<string, string>>({});
   const [msg, setMsg] = useState("");
   const [err, setErr] = useState("");
+  const [framed, setFramed] = useState(false);
+  useEffect(() => setFramed(window.self !== window.top), []);
 
   const load = useCallback(async () => {
     try {
@@ -104,6 +106,12 @@ export default function AdConnections({ onChanged }: { onChanged: () => void }) 
         เชื่อมต่อด้วยการล็อกอินกับ Meta / TikTok โดยตรง (OAuth) ระบบขอสิทธิ์อ่านรายงานเท่านั้น ไม่มีการแก้ไขหรือหยุดโฆษณาของคุณ และเก็บ token แบบเข้ารหัสแยกรายผู้ใช้
       </p>
 
+      {framed && (
+        <p className="notice" role="note" style={{ marginTop: 0 }}>
+          Meta / TikTok ไม่อนุญาตให้ล็อกอินในกรอบ ปุ่มเชื่อมต่อจะเปิดแท็บใหม่ (อาจต้องเข้าสู่ระบบ AdPilot ในแท็บนั้นอีกครั้ง) เชื่อมต่อเสร็จแล้วกลับมารีเฟรชกรอบนี้
+        </p>
+      )}
+
       <ul className="key-list">
         {items === null && <li className="muted">กำลังโหลด…</li>}
         {items?.map((it) => {
@@ -123,6 +131,8 @@ export default function AdConnections({ onChanged }: { onChanged: () => void }) 
                   <a
                     className={"btn small " + (it.connected && it.status === "ok" ? "plain" : "approve")}
                     href={`/api/ads/connect/${it.platform}`}
+                    target={framed ? "_blank" : undefined}
+                    rel={framed ? "noopener" : undefined}
                     style={{ display: "inline-flex", alignItems: "center", textDecoration: "none" }}
                   >
                     {it.connected ? "เชื่อมต่อใหม่" : "เชื่อมต่อ"}

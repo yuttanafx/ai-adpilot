@@ -54,69 +54,32 @@ function cleanUrl(u: string): string {
   }
 }
 
-// ลำดับความสำคัญ: แบบ pooled ก่อน (เหมาะกับ serverless) แล้วค่อยถอยไปใช้แบบ non-pooling / unpooled
-const URL_NAMES = ["DATABASE_URL", "POSTGRES_URL", "POSTGRES_PRISMA_URL", "POSTGRES_URL_NON_POOLING", "DATABASE_URL_UNPOOLED"];
-
-function resolveDbUrl(): string | undefined {
-  const env = process.env;
-  // 1) ชื่อมาตรฐานแบบตรงตัว
-  for (const n of URL_NAMES) if (env[n]) return env[n];
-  // 2) ชื่อที่มี prefix ที่ผู้ใช้ตั้งตอนเชื่อม Neon ผ่าน Vercel (เช่น MyShop_POSTGRES_URL, MyShop_DATABASE_URL)
-  for (const n of URL_NAMES) {
-    const suffix = "_" + n.toLowerCase();
-    const key = Object.keys(env).find((k) => k.toLowerCase().endsWith(suffix) && env[k]);
-    if (key) return env[key];
-  }
-  return undefined;
-}
-
 async function connectPg(url: string): Promise<Db> {
   const { Pool } = await import("pg");
   const conn = cleanUrl(url);
   const local = /@(localhost|127\.0\.0\.1|\[::1\])[:/]/.test(conn);
   const mk = (ssl: boolean | { rejectUnauthorized: boolean }) =>
     new Pool({ connectionString: conn, max: 5, ssl: local ? undefined : ssl, connectionTimeoutMillis: 15_000 });
-  // Neon (แพ็กเกจฟรี) จะหลับเมื่อไม่มีการใช้งาน การเชื่อมต่อแรกอาจช้า จึงลองใหม่เมื่อ timeout / เชื่อมต่อหลุด
-  const isTransient = (e: unknown) => {
-    const code = (e as { code?: string })?.code ?? "";
-    const msg = e instanceof Error ? e.message : "";
-    return /timeout|terminated|ECONNRESET|ETIMEDOUT|ECONNREFUSED/i.test(code + " " + msg);
-  };
-  const probe = async (ssl: boolean | { rejectUnauthorized: boolean }) => {
-    let last: unknown;
-    for (let i = 0; i < 3; i++) {
-      const p = mk(ssl);
-      p.on("error", (err) => console.error("[db] pool error", err.message));
-      try {
-        await p.query("select 1");
-        return p;
-      } catch (e) {
-        last = e;
-        await p.end().catch(() => {});
-        if (!isTransient(e)) throw e;
-        console.warn("[db] เชื่อมต่อไม่สำเร็จ (ครั้งที่ " + (i + 1) + "/3) ลองใหม่...");
-        await new Promise((r) => setTimeout(r, 1500 * (i + 1)));
-      }
-    }
-    throw last;
-  };
-  let pool;
+  let pool = mk(true); // ตรวจใบรับรองเต็มรูปแบบก่อน
+  pool.on("error", (err) => console.error("[db] pool error", err.message));
   try {
-    pool = await probe(true); // ตรวจใบรับรองเต็มรูปแบบก่อน
+    await pool.query("select 1");
   } catch (e) {
     const code = (e as { code?: string })?.code ?? "";
     if (!CERT_ERRORS.includes(code)) throw e;
     // ผู้ให้บริการบางรายใช้ CA ที่ Node ไม่รู้จัก: ยังเข้ารหัสการเชื่อมต่ออยู่ แต่ไม่ตรวจห่วงโซ่ใบรับรอง
     console.warn("[db] ตรวจใบรับรอง SSL ไม่ผ่าน (" + code + ") ลองใหม่แบบ rejectUnauthorized=false");
-    pool = await probe({ rejectUnauthorized: false });
+    await pool.end().catch(() => {});
+    pool = mk({ rejectUnauthorized: false });
+    await pool.query("select 1");
   }
   return { query: async (s, p) => (await pool.query(s, p as unknown[])).rows };
 }
 
 async function init(): Promise<Db> {
   let db: Db;
-  // รองรับทั้ง DATABASE_URL และตัวแปรที่ Vercel / Neon สร้างให้อัตโนมัติ (POSTGRES_URL ฯลฯ) รวมถึงที่มี prefix เช่น MyShop_POSTGRES_URL
-  const dbUrl = resolveDbUrl();
+  // รองรับทั้ง DATABASE_URL และตัวแปรที่ Vercel / Neon สร้างให้อัตโนมัติ (POSTGRES_URL ฯลฯ)
+  const dbUrl = process.env.DATABASE_URL || process.env.POSTGRES_URL || process.env.POSTGRES_PRISMA_URL || process.env.POSTGRES_URL_NON_POOLING;
   if (dbUrl) {
     db = await connectPg(dbUrl);
   } else {
