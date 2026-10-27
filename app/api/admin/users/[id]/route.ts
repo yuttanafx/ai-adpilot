@@ -1,4 +1,5 @@
 import { AppError, getDb } from "@/lib/db";
+import { deleteAllMedia } from "@/lib/media";
 import { deleteUser, otherActiveAdmins as countOtherAdmins, updateUser, userById, type UserRow } from "@/lib/store";
 import { json, readJson, str, validPassword, withAdmin } from "@/lib/http";
 import { generatePassword, hashPassword } from "@/lib/security";
@@ -54,6 +55,7 @@ export const DELETE = withAdmin<Ctx>(async (_req, me, ctx) => {
   const target = await userById(db, id);
   if (!target) throw new AppError("ไม่พบผู้ใช้", 404);
   if (target.role === "admin" && (await otherActiveAdmins(id)) < 1) throw new AppError("ต้องเหลือแอดมินที่ใช้งานได้อย่างน้อย 1 คน", 400);
+  await deleteAllMedia(id).catch((e) => console.error("[media] ลบไฟล์ของผู้ใช้ไม่สำเร็จ", e)); // ลบไฟล์ก่อน เพราะลบบัญชีแล้วจะหารายการไม่เจอ
   await deleteUser(db, id);
   return json({ ok: true });
 });

@@ -4,6 +4,8 @@ import { useCallback, useEffect, useState } from "react";
 import TrendChart from "./TrendChart";
 import CreativeGenerator, { type Creative } from "./CreativeGenerator";
 import SettingsPanel from "./SettingsPanel";
+import MediaPicker, { deleteMedia, useMediaCaps } from "./MediaPicker";
+import { mediaUrl, type MediaRef } from "@/lib/mediaTypes";
 import AdConnections from "./AdConnections";
 import type { Overview } from "@/lib/ads/overview";
 import { money } from "@/lib/format";
@@ -45,7 +47,8 @@ export default function Dashboard({ user }: { user: { displayName: string; role:
   const [log, setLog, r4] = useStored<LogEntry[]>("log", []);
   const loaded = r1 && r2 && r3 && r4;
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [draft, setDraft] = useState({ headline: "", primaryText: "" });
+  const [draft, setDraft] = useState<{ headline: string; primaryText: string; media: MediaRef[] }>({ headline: "", primaryText: "", media: [] });
+  const { caps: mediaCaps, reload: reloadMediaCaps } = useMediaCaps();
 
   // ข้อมูลจริงจาก Meta / TikTok (ถ้าผู้ใช้เชื่อมต่อแล้ว) — ถ้ายังไม่เชื่อมต่อจะแสดงข้อมูลตัวอย่าง
   const [live, setLive] = useState<Overview | null>(null);
@@ -112,7 +115,7 @@ export default function Dashboard({ user }: { user: { displayName: string; role:
     }
   }
 
-  function addCreative(c: Creative, p: AdPlatform) {
+  function addCreative(c: Creative, p: AdPlatform, media: MediaRef[]) {
     const [from, to] = PALETTE[queue.length % PALETTE.length];
     const item: QueueItem = {
       id: uid(),
@@ -123,6 +126,7 @@ export default function Dashboard({ user }: { user: { displayName: string; role:
       description: c.description,
       cta: c.cta,
       brief: c.creativeBrief,
+      media: media.length ? media : undefined,
       status: "pending",
       from,
       to,
@@ -141,12 +145,24 @@ export default function Dashboard({ user }: { user: { displayName: string; role:
   }
   function startEdit(q: QueueItem) {
     setEditingId(q.id);
-    setDraft({ headline: q.headline, primaryText: q.primaryText });
+    setDraft({ headline: q.headline, primaryText: q.primaryText, media: q.media ?? [] });
   }
+  // ไฟล์ที่เพิ่มใหม่ระหว่างแก้ไขจะถูกลบถ้ากดยกเลิก / ไฟล์เดิมที่เอาออกจะถูกลบเมื่อกดบันทึก
   function saveEdit(q: QueueItem) {
-    patchItem(q.id, { headline: draft.headline, primaryText: draft.primaryText, status: "pending" });
-    addLog(`แก้ไขข้อความ "${q.title}"`, "ผู้ใช้แก้ไขเอง");
+    const keep = new Set(draft.media.map((m) => m.id));
+    deleteMedia((q.media ?? []).filter((m) => !keep.has(m.id)).map((m) => m.id));
+    patchItem(q.id, { headline: draft.headline, primaryText: draft.primaryText, media: draft.media.length ? draft.media : undefined, status: "pending" });
+    addLog(`แก้ไขรายการ "${q.title}"`, "ผู้ใช้แก้ไขเอง");
     setEditingId(null);
+  }
+  function cancelEdit(q: QueueItem) {
+    const old = new Set((q.media ?? []).map((m) => m.id));
+    deleteMedia(draft.media.filter((m) => !old.has(m.id)).map((m) => m.id));
+    setEditingId(null);
+  }
+  function removeItem(q: QueueItem) {
+    deleteMedia((q.media ?? []).map((m) => m.id));
+    setQueue((prev) => prev.filter((x) => x.id !== q.id));
   }
 
   async function logout() {
@@ -414,13 +430,37 @@ export default function Dashboard({ user }: { user: { displayName: string; role:
                           <span>ข้อความหลัก</span>
                           <textarea value={draft.primaryText} onChange={(e) => setDraft({ ...draft, primaryText: e.target.value })} />
                         </label>
+                        <MediaPicker
+                          value={draft.media}
+                          onChange={(v) => setDraft((d) => ({ ...d, media: v }))}
+                          caps={mediaCaps}
+                          reloadCaps={reloadMediaCaps}
+                          platform={q.platform ?? "meta"}
+                          deferDelete
+                          defaultPrompt={q.brief || q.headline}
+                        />
                         <div className="row">
                           <button type="button" className="btn approve" onClick={() => saveEdit(q)}>บันทึก</button>
-                          <button type="button" className="btn edit" onClick={() => setEditingId(null)}>ยกเลิก</button>
+                          <button type="button" className="btn edit" onClick={() => cancelEdit(q)}>ยกเลิก</button>
                         </div>
                       </>
                     ) : (
                       <>
+                        {q.media && q.media.length > 0 && (
+                          <div className="media-grid">
+                            {q.media.map((m) => (
+                              <div key={m.id} className="media-item">
+                                {m.kind === "image" ? (
+                                  // eslint-disable-next-line @next/next/no-img-element
+                                  <img src={mediaUrl(m.id)} alt={m.name || "รูปโฆษณา"} loading="lazy" />
+                                ) : (
+                                  <video src={mediaUrl(m.id)} controls preload="metadata" playsInline />
+                                )}
+                                <span className="media-badge">{m.source === "ai" ? "AI" : m.kind === "image" ? "รูป" : "วิดีโอ"}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
                         <div>
                           <div style={{ fontWeight: 600 }}>{q.headline}</div>
                           <div className="card-note">{q.primaryText}</div>
@@ -435,7 +475,7 @@ export default function Dashboard({ user }: { user: { displayName: string; role:
                           ) : (
                             <>
                               <button type="button" className="btn edit" onClick={() => patchItem(q.id, { status: "pending" })}>ย้อนกลับเป็นรอตรวจสอบ</button>
-                              <button type="button" className="btn reject" onClick={() => setQueue((prev) => prev.filter((x) => x.id !== q.id))}>ลบ</button>
+                              <button type="button" className="btn reject" onClick={() => removeItem(q)}>ลบ</button>
                             </>
                           )}
                         </div>

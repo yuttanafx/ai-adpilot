@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import type { AdPlatform } from "@/lib/data";
+import type { MediaRef } from "@/lib/mediaTypes";
+import MediaPicker, { deleteMedia, useMediaCaps } from "./MediaPicker";
 
 export type Creative = {
   angle: string;
@@ -14,7 +16,7 @@ export type Creative = {
   tags: string[];
 };
 
-type Props = { onAdd: (c: Creative, platform: AdPlatform) => void };
+type Props = { onAdd: (c: Creative, platform: AdPlatform, media: MediaRef[]) => void };
 
 export default function CreativeGenerator({ onAdd }: Props) {
   const [product, setProduct] = useState("");
@@ -28,6 +30,10 @@ export default function CreativeGenerator({ onAdd }: Props) {
   const [results, setResults] = useState<Creative[]>([]);
   const [resultPlatform, setResultPlatform] = useState<AdPlatform>("meta");
   const [added, setAdded] = useState<Set<number>>(new Set());
+  const [resultProduct, setResultProduct] = useState("");
+  // รูป/วิดีโอที่แนบหรือสร้างให้แต่ละชุด (key = ลำดับชุด)
+  const [media, setMedia] = useState<Record<number, MediaRef[]>>({});
+  const { caps, reload } = useMediaCaps();
 
   async function generate(e: React.FormEvent) {
     e.preventDefault();
@@ -49,8 +55,12 @@ export default function CreativeGenerator({ onAdd }: Props) {
         if (data.code === "NO_KEY") setNoKey(true);
         throw new Error(data.error || "สร้างคอนเทนต์ไม่สำเร็จ");
       }
+      // ชุดเดิมที่ยังไม่ได้ส่งเข้าคิวจะถูกแทนที่ → ลบรูป/วิดีโอที่ค้างอยู่ไม่ให้สิ้นเปลืองที่เก็บ
+      deleteMedia(Object.entries(media).filter(([i]) => !added.has(Number(i))).flatMap(([, v]) => v.map((m) => m.id)));
+      setMedia({});
       setResults(data.creatives as Creative[]);
       setResultPlatform(platform);
+      setResultProduct(product);
       setAdded(new Set());
     } catch (err) {
       setError(err instanceof Error ? err.message : "สร้างคอนเทนต์ไม่สำเร็จ");
@@ -114,12 +124,21 @@ export default function CreativeGenerator({ onAdd }: Props) {
               {c.audienceNotes && <span className="meta-line">กลุ่มเป้าหมาย: {c.audienceNotes}</span>}
               {c.creativeBrief && <span className="meta-line">ภาพ/วิดีโอ: {c.creativeBrief}</span>}
               {c.tags.length > 0 && <div className="tags">{c.tags.map((t) => <span key={t}>{t}</span>)}</div>}
+              <MediaPicker
+                value={media[i] ?? []}
+                onChange={(v) => setMedia((prev) => ({ ...prev, [i]: v }))}
+                caps={caps}
+                reloadCaps={reload}
+                platform={resultPlatform}
+                disabled={added.has(i)}
+                defaultPrompt={`${c.creativeBrief || c.headline}${resultProduct ? `\nสินค้า/บริการ: ${resultProduct}` : ""}`}
+              />
               <button
                 type="button"
                 className="btn approve"
                 disabled={added.has(i)}
                 onClick={() => {
-                  onAdd(c, resultPlatform);
+                  onAdd(c, resultPlatform, media[i] ?? []);
                   setAdded(new Set(added).add(i));
                 }}
               >

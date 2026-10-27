@@ -8,7 +8,7 @@ const embed = (process.env.EMBED_ORIGINS ?? "")
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
-  serverExternalPackages: ["firebase-admin", "@google-cloud/firestore"],
+  serverExternalPackages: ["firebase-admin", "@google-cloud/firestore", "@google-cloud/storage"],
   async headers() {
     return [
       {

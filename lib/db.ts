@@ -19,34 +19,67 @@ export const newId = () => crypto.randomUUID();
 
 type Cred = { projectId: string; clientEmail: string; privateKey: string };
 
+type SA = { project_id?: string; client_email?: string; private_key?: string };
+
+// แปลงค่า FIREBASE_SERVICE_ACCOUNT ให้เป็นอ็อบเจ็กต์ — ทนต่อการวางที่ผิดรูปแบบที่พบบ่อย:
+// มีเครื่องหมายคำพูดครอบ, เป็น base64, JSON ซ้อน (ถูก escape ซ้ำ), หรือบรรทัดใหม่จริงๆ แทรกอยู่ใน private_key
+function parseServiceAccount(raw: string): SA | null {
+  let t = raw.trim();
+  if ((t.startsWith("'") && t.endsWith("'")) || (t.startsWith("`") && t.endsWith("`"))) t = t.slice(1, -1).trim();
+  if (!t.startsWith("{") && !t.startsWith('"')) {
+    try {
+      const d = Buffer.from(t, "base64").toString("utf8").trim();
+      if (d.startsWith("{")) t = d;
+    } catch {
+      /* ใช้ข้อความเดิม */
+    }
+  }
+  const tryParse = (x: string): SA | null => {
+    try {
+      let v: unknown = JSON.parse(x);
+      if (typeof v === "string") v = JSON.parse(v); // JSON ที่ถูกห่อเป็นสตริงซ้ำ
+      return v && typeof v === "object" ? (v as SA) : null;
+    } catch {
+      return null;
+    }
+  };
+  const direct = tryParse(t) ?? tryParse(t.replace(/\r?\n/g, "\\n")); // บรรทัดใหม่จริงๆ ในสตริง → \n
+  if (direct?.private_key) return direct;
+  // วิธีสุดท้าย: ดึงฟิลด์ที่ต้องใช้ออกมาด้วย regex แม้โครงสร้าง JSON พัง
+  const pick = (k: string) => new RegExp(`"${k}"\\s*:\\s*"([\\s\\S]*?)"\\s*(?:,|\\})`).exec(t)?.[1];
+  const key = pick("private_key");
+  const mail = pick("client_email");
+  const pid = pick("project_id");
+  return key && mail && pid ? { project_id: pid, client_email: mail, private_key: key } : direct;
+}
+
+// ตรวจรูปแบบ private key และแก้ \n ที่ถูก escape ให้เป็นบรรทัดใหม่จริง
+function normalizeKey(k: string): string {
+  return k.replace(/\\n/g, "\n").replace(/\r/g, "").trim();
+}
+
 // อ่านข้อมูลรับรอง Firebase: FIREBASE_SERVICE_ACCOUNT (JSON หรือ base64 ของ JSON) หรือแยก 3 ตัวแปร
 function readCredentials(): Cred | null {
   const raw = process.env.FIREBASE_SERVICE_ACCOUNT?.trim();
   if (raw) {
-    let text = raw;
-    if (!text.startsWith("{")) {
-      try {
-        text = Buffer.from(text, "base64").toString("utf8");
-      } catch {
-        /* ใช้ข้อความเดิม */
-      }
-    }
-    let j: { project_id?: string; client_email?: string; private_key?: string };
-    try {
-      j = JSON.parse(text);
-    } catch {
-      throw new AppError("FIREBASE_SERVICE_ACCOUNT ไม่ใช่ JSON ที่ถูกต้อง (ให้วางเนื้อหาไฟล์ service account ทั้งไฟล์)", 503, "FIREBASE_CONFIG");
-    }
+    const j = parseServiceAccount(raw);
+    // ข้อมูลวินิจฉัยที่ไม่เปิดเผยความลับ: ความยาว และอักขระแรก/สุดท้าย
+    const info = `ได้รับ ${raw.length} ตัวอักษร ขึ้นต้นด้วย "${raw[0]}" ลงท้ายด้วย "${raw[raw.length - 1]}" (ไฟล์ที่ถูกต้องยาวราว 2,300–2,500 ตัว ขึ้นต้นด้วย "{" ลงท้ายด้วย "}")`;
+    if (!j) throw new AppError(`FIREBASE_SERVICE_ACCOUNT ไม่ใช่ JSON ที่ถูกต้อง — ${info} ให้เปิดไฟล์ .json ด้วย Notepad กดเลือกทั้งหมดแล้วคัดลอกมาวางทั้งไฟล์ ห้ามพิมพ์ครอบหรือแก้ไข`, 503, "FIREBASE_CONFIG");
     if (!j.project_id || !j.client_email || !j.private_key) {
-      throw new AppError("FIREBASE_SERVICE_ACCOUNT ขาด project_id / client_email / private_key", 503, "FIREBASE_CONFIG");
+      throw new AppError(`FIREBASE_SERVICE_ACCOUNT ขาด project_id / client_email / private_key — ${info}`, 503, "FIREBASE_CONFIG");
     }
-    return { projectId: j.project_id, clientEmail: j.client_email, privateKey: j.private_key };
+    const privateKey = normalizeKey(j.private_key);
+    if (!privateKey.includes("BEGIN PRIVATE KEY") || !privateKey.includes("END PRIVATE KEY")) {
+      throw new AppError(`private_key ไม่สมบูรณ์ (ไม่พบ BEGIN/END PRIVATE KEY) — ${info}`, 503, "FIREBASE_CONFIG");
+    }
+    return { projectId: j.project_id, clientEmail: j.client_email, privateKey };
   }
   const projectId = process.env.FIREBASE_PROJECT_ID?.trim();
   const clientEmail = process.env.FIREBASE_CLIENT_EMAIL?.trim();
   const privateKey = process.env.FIREBASE_PRIVATE_KEY;
   if (projectId && clientEmail && privateKey) {
-    return { projectId, clientEmail, privateKey: privateKey.replace(/\\n/g, "\n").replace(/^"|"$/g, "") };
+    return { projectId, clientEmail, privateKey: normalizeKey(privateKey.replace(/^"|"$/g, "")) };
   }
   return null;
 }

@@ -1,5 +1,7 @@
 // ข้อมูลตัวอย่าง (mock) — เปลี่ยนเป็นดึงจาก Meta / Google / TikTok API หรือฐานข้อมูลของคุณภายหลัง
 
+import type { MediaRef } from "./mediaTypes";
+
 export type Platform = "all" | "meta" | "google" | "tiktok";
 export type AdPlatform = Exclude<Platform, "all">;
 
@@ -92,6 +94,7 @@ export type QueueItem = {
   description?: string;
   cta?: string;
   brief?: string;
+  media?: MediaRef[];
   status: QueueStatus;
   from: string;
   to: string;
