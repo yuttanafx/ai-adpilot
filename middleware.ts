@@ -23,11 +23,11 @@ export async function middleware(req: NextRequest) {
 
   const authed = Boolean(await verifySession(req.cookies.get(COOKIE_NAME)?.value, secret));
 
-  if (pathname === "/login") {
+  if (pathname === "/login" || pathname === "/register") {
     if (authed) return NextResponse.redirect(new URL("/", req.url));
     return NextResponse.next();
   }
-  if (pathname === "/api/login") return NextResponse.next();
+  if (pathname === "/api/login" || pathname === "/api/register") return NextResponse.next();
   if (authed) return NextResponse.next();
 
   if (isApi) return NextResponse.json({ error: "กรุณาเข้าสู่ระบบก่อน" }, { status: 401 });

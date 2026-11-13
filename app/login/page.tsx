@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import Link from "next/link";
+import { useEffect, useState } from "react";
 import LoginScene from "@/components/LoginScene";
 import { BRAND_NAME } from "@/lib/brand";
 
@@ -9,6 +10,14 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [signupOpen, setSignupOpen] = useState(true);
+
+  useEffect(() => {
+    fetch("/api/register", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((d) => setSignupOpen(d.open !== false))
+      .catch(() => {});
+  }, []);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -56,7 +65,7 @@ export default function LoginPage() {
             </svg>
             <h1>{BRAND_NAME}</h1>
           </div>
-          <p className="muted">เข้าสู่ระบบด้วยบัญชีที่ผู้ดูแลระบบสร้างให้</p>
+          <p className="muted">เข้าสู่ระบบด้วยบัญชีของคุณ</p>
           <label className="field">
             <span>ชื่อผู้ใช้</span>
             <input value={username} onChange={(e) => setUsername(e.target.value)} autoFocus autoComplete="username" autoCapitalize="none" required />
@@ -67,7 +76,9 @@ export default function LoginPage() {
           </label>
           {error && <div role="alert" className="form-error">{error}</div>}
           <button type="submit" className="btn approve" disabled={busy}>{busy ? "กำลังตรวจสอบ…" : "เข้าสู่ระบบ"}</button>
-          <p className="muted small">ยังไม่มีบัญชี? ติดต่อผู้ดูแลระบบเพื่อขอรหัสผ่าน</p>
+          <p className="muted small">
+            {signupOpen ? <>ยังไม่มีบัญชี? <Link href="/register">สมัครสมาชิก</Link></> : "ยังไม่มีบัญชี? ติดต่อผู้ดูแลระบบเพื่อขอรหัสผ่าน"}
+          </p>
         </form>
       </section>
     </main>
